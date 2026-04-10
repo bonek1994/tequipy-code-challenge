@@ -40,6 +40,10 @@ class EquipmentPersistenceAdapter(
         return jdbcRepository.findByState(state).map(mapper::toDomain)
     }
 
+    override fun findByIdsForUpdate(ids: List<UUID>): List<Equipment> {
+        return jdbcRepository.findByIdsForUpdate(ids).map(mapper::toDomain)
+    }
+
     override fun existsById(id: UUID): Boolean {
         return jdbcRepository.existsById(id)
     }

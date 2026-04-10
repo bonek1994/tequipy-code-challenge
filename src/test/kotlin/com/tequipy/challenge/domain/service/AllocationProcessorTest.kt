@@ -74,6 +74,36 @@ class AllocationProcessorTest {
 
         // then
         verify(exactly = 0) { equipmentRepository.saveAll(any()) }
+        verify(exactly = 0) { equipmentRepository.findByIdsForUpdate(any()) }
+        verify {
+            allocationRepository.save(match {
+                it.id == allocationId &&
+                    it.state == AllocationState.FAILED &&
+                    it.allocatedEquipmentIds.isEmpty()
+            })
+        }
+    }
+
+    @Test
+    fun `processAllocation should fail when all candidates are locked by concurrent requests`() {
+        // given
+        val allocationId = UUID.randomUUID()
+        val candidateEquipment = equipment(type = EquipmentType.MONITOR, conditionScore = 0.92)
+        val pending = allocation(
+            id = allocationId,
+            state = AllocationState.PENDING,
+            policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, minimumConditionScore = 0.8))
+        )
+        every { allocationRepository.findById(allocationId) } returns pending
+        every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(candidateEquipment)
+        every { equipmentRepository.findByIdsForUpdate(listOf(candidateEquipment.id)) } returns emptyList()
+        every { allocationRepository.save(any()) } answers { firstArg() }
+
+        // when
+        processor.processAllocation(allocationId)
+
+        // then
+        verify(exactly = 0) { equipmentRepository.saveAll(any()) }
         verify {
             allocationRepository.save(match {
                 it.id == allocationId &&
@@ -95,6 +125,7 @@ class AllocationProcessorTest {
         )
         every { allocationRepository.findById(allocationId) } returns pending
         every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(selectedEquipment)
+        every { equipmentRepository.findByIdsForUpdate(listOf(selectedEquipment.id)) } returns listOf(selectedEquipment)
         every { equipmentRepository.saveAll(any()) } answers { firstArg() }
         every { allocationRepository.save(any()) } answers { firstArg() }
 
