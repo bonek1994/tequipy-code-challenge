@@ -126,6 +126,7 @@ class AllocationControllerIntegrationTest {
     }
 
     private fun waitForAllocation(id: java.util.UUID, expectedState: AllocationState): AllocationResponse {
+        // 500ms interval accommodates asynchronous RabbitMQ message processing latency
         repeat(20) {
             val response = restTemplate.getForEntity("${allocationUrl()}/$id", AllocationResponse::class.java)
             if (response.body != null && response.body!!.state == expectedState) {

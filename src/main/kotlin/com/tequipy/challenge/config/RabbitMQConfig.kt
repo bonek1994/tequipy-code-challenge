@@ -71,4 +71,3 @@ class RabbitMQConfig {
         return factory
     }
 }
-
