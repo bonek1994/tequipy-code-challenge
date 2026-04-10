@@ -77,6 +77,16 @@ class EquipmentJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
         return jdbcTemplate.query("SELECT * FROM equipments WHERE state = ?", rowMapper, state.name)
     }
 
+    fun findByIdsForUpdate(ids: List<UUID>): List<EquipmentEntity> {
+        if (ids.isEmpty()) return emptyList()
+        val placeholders = ids.joinToString(",") { "?" }
+        return jdbcTemplate.query(
+            "SELECT * FROM equipments WHERE id IN ($placeholders) AND state = ? FOR UPDATE SKIP LOCKED",
+            rowMapper,
+            *ids.toTypedArray(), EquipmentState.AVAILABLE.name
+        )
+    }
+
     fun existsById(id: UUID): Boolean {
         val count = jdbcTemplate.queryForObject(
             "SELECT COUNT(*) FROM equipments WHERE id = ?",

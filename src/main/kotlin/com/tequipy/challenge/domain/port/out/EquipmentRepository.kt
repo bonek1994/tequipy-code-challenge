@@ -11,5 +11,6 @@ interface EquipmentRepository {
     fun findAll(): List<Equipment>
     fun findByIds(ids: List<UUID>): List<Equipment>
     fun findByState(state: EquipmentState): List<Equipment>
+    fun findByIdsForUpdate(ids: List<UUID>): List<Equipment>
     fun existsById(id: UUID): Boolean
 }
