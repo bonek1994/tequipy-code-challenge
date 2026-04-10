@@ -22,6 +22,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-validation")
+    implementation("org.springframework.boot:spring-boot-starter-amqp")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.flywaydb:flyway-core")
@@ -31,6 +32,7 @@ dependencies {
     testImplementation("io.mockk:mockk:1.13.9")
     testImplementation("org.testcontainers:postgresql:1.19.6")
     testImplementation("org.testcontainers:junit-jupiter:1.19.6")
+    testImplementation("org.testcontainers:rabbitmq:1.19.6")
 }
 
 tasks.withType<KotlinCompile> {

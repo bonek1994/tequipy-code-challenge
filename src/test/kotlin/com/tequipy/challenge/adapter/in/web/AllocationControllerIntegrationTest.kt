@@ -21,6 +21,7 @@ import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.testcontainers.containers.PostgreSQLContainer
+import org.testcontainers.containers.RabbitMQContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.time.LocalDate
@@ -44,12 +45,19 @@ class AllocationControllerIntegrationTest {
             .withUsername("tequipy")
             .withPassword("tequipy")
 
+        @Container
+        val rabbitmq: RabbitMQContainer = RabbitMQContainer("rabbitmq:3.12-management-alpine")
+
         @JvmStatic
         @DynamicPropertySource
         fun configureProperties(registry: DynamicPropertyRegistry) {
             registry.add("spring.datasource.url", postgres::getJdbcUrl)
             registry.add("spring.datasource.username", postgres::getUsername)
             registry.add("spring.datasource.password", postgres::getPassword)
+            registry.add("spring.rabbitmq.host", rabbitmq::getHost)
+            registry.add("spring.rabbitmq.port", rabbitmq::getAmqpPort)
+            registry.add("spring.rabbitmq.username", rabbitmq::getAdminUsername)
+            registry.add("spring.rabbitmq.password", rabbitmq::getAdminPassword)
         }
     }
 
@@ -123,7 +131,7 @@ class AllocationControllerIntegrationTest {
             if (response.body != null && response.body!!.state == expectedState) {
                 return response.body!!
             }
-            Thread.sleep(150)
+            Thread.sleep(500)
         }
         error("Allocation $id did not reach state $expectedState in time")
     }

@@ -27,9 +27,8 @@ class AllocationServiceTest {
     private val allocationRepository: AllocationRepository = mockk()
     private val equipmentRepository: EquipmentRepository = mockk()
     private val eventPublisher: ApplicationEventPublisher = mockk(relaxed = true)
-    private val allocationProcessor: AllocationProcessor = mockk(relaxed = true)
 
-    private val service = AllocationService(allocationRepository, equipmentRepository, eventPublisher, allocationProcessor)
+    private val service = AllocationService(allocationRepository, equipmentRepository, eventPublisher)
 
     @Test
     fun `createAllocation should persist pending request and publish event`() {
@@ -45,7 +44,6 @@ class AllocationServiceTest {
             allocatedEquipmentIds = emptyList()
         )
         every { allocationRepository.save(capture(captured)) } returns saved
-        every { allocationRepository.findById(saved.id) } returns saved
         every { eventPublisher.publishEvent(capture(eventSlot)) } returns Unit
 
         // when

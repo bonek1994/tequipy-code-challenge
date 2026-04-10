@@ -21,8 +21,7 @@ import java.util.UUID
 class AllocationService(
     private val allocationRepository: AllocationRepository,
     private val equipmentRepository: EquipmentRepository,
-    private val eventPublisher: ApplicationEventPublisher,
-    private val allocationProcessor: AllocationProcessor
+    private val eventPublisher: ApplicationEventPublisher
 ) : AllocationUseCase {
 
     override fun createAllocation(employeeId: UUID, policy: List<EquipmentPolicyRequirement>): AllocationRequest {
@@ -47,8 +46,7 @@ class AllocationService(
         )
 
         eventPublisher.publishEvent(AllocationCreatedEvent(allocation.id))
-        allocationProcessor.processAllocation(allocation.id)
-        return allocationRepository.findById(allocation.id) ?: allocation
+        return allocation
     }
 
     @Transactional(readOnly = true)
