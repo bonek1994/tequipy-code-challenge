@@ -3,6 +3,7 @@ package com.tequipy.challenge.adapter.out.persistence.adapter
 import com.tequipy.challenge.adapter.out.persistence.mapper.EquipmentEntityMapper
 import com.tequipy.challenge.adapter.out.persistence.repository.EquipmentJdbcRepository
 import com.tequipy.challenge.domain.model.Equipment
+import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.port.out.EquipmentRepository
 import org.springframework.stereotype.Component
@@ -40,8 +41,8 @@ class EquipmentPersistenceAdapter(
         return jdbcRepository.findByState(state).map(mapper::toDomain)
     }
 
-    override fun findByIdsForUpdate(ids: List<UUID>): List<Equipment> {
-        return jdbcRepository.findByIdsForUpdate(ids).map(mapper::toDomain)
+    override fun findAvailableByPolicyForUpdate(policy: List<EquipmentPolicyRequirement>): List<Equipment> {
+        return jdbcRepository.findAvailableByPolicyForUpdate(policy).map(mapper::toDomain)
     }
 
     override fun existsById(id: UUID): Boolean {

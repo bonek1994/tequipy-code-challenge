@@ -31,7 +31,7 @@ class AllocationProcessorTest {
         processor.processAllocation(allocationId)
 
         // then
-        verify(exactly = 0) { equipmentRepository.findByState(any()) }
+        verify(exactly = 0) { equipmentRepository.findAvailableByPolicyForUpdate(any()) }
         verify(exactly = 0) { equipmentRepository.saveAll(any()) }
         verify(exactly = 0) { allocationRepository.save(any()) }
     }
@@ -50,23 +50,22 @@ class AllocationProcessorTest {
         processor.processAllocation(allocationId)
 
         // then
-        verify(exactly = 0) { equipmentRepository.findByState(any()) }
+        verify(exactly = 0) { equipmentRepository.findAvailableByPolicyForUpdate(any()) }
         verify(exactly = 0) { equipmentRepository.saveAll(any()) }
         verify(exactly = 0) { allocationRepository.save(any()) }
     }
 
     @Test
-    fun `processAllocation should mark allocation as failed when no selection is possible`() {
-        // given
+    fun `processAllocation should mark allocation as failed when no candidates match the policy`() {
+        // given – the ranked query returns nothing because no equipment satisfies the constraints
         val allocationId = UUID.randomUUID()
         val pending = allocation(
             id = allocationId,
             state = AllocationState.PENDING,
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, minimumConditionScore = 0.9))
         )
-        val unavailableCandidate = equipment(type = EquipmentType.MONITOR, conditionScore = 0.5)
         every { allocationRepository.findById(allocationId) } returns pending
-        every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(unavailableCandidate)
+        every { equipmentRepository.findAvailableByPolicyForUpdate(any()) } returns emptyList()
         every { allocationRepository.save(any()) } answers { firstArg() }
 
         // when
@@ -74,7 +73,6 @@ class AllocationProcessorTest {
 
         // then
         verify(exactly = 0) { equipmentRepository.saveAll(any()) }
-        verify(exactly = 0) { equipmentRepository.findByIdsForUpdate(any()) }
         verify {
             allocationRepository.save(match {
                 it.id == allocationId &&
@@ -86,17 +84,15 @@ class AllocationProcessorTest {
 
     @Test
     fun `processAllocation should fail when all candidates are locked by concurrent requests`() {
-        // given
+        // given – SKIP LOCKED causes the ranked query to return nothing
         val allocationId = UUID.randomUUID()
-        val candidateEquipment = equipment(type = EquipmentType.MONITOR, conditionScore = 0.92)
         val pending = allocation(
             id = allocationId,
             state = AllocationState.PENDING,
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, minimumConditionScore = 0.8))
         )
         every { allocationRepository.findById(allocationId) } returns pending
-        every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(candidateEquipment)
-        every { equipmentRepository.findByIdsForUpdate(listOf(candidateEquipment.id)) } returns emptyList()
+        every { equipmentRepository.findAvailableByPolicyForUpdate(any()) } returns emptyList()
         every { allocationRepository.save(any()) } answers { firstArg() }
 
         // when
@@ -124,8 +120,7 @@ class AllocationProcessorTest {
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, minimumConditionScore = 0.8))
         )
         every { allocationRepository.findById(allocationId) } returns pending
-        every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(selectedEquipment)
-        every { equipmentRepository.findByIdsForUpdate(listOf(selectedEquipment.id)) } returns listOf(selectedEquipment)
+        every { equipmentRepository.findAvailableByPolicyForUpdate(any()) } returns listOf(selectedEquipment)
         every { equipmentRepository.saveAll(any()) } answers { firstArg() }
         every { allocationRepository.save(any()) } answers { firstArg() }
 

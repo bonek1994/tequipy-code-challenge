@@ -1,8 +1,6 @@
 package com.tequipy.challenge.domain.service
 
 import com.tequipy.challenge.domain.model.AllocationState
-import com.tequipy.challenge.domain.model.Equipment
-import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.port.out.AllocationRepository
 import com.tequipy.challenge.domain.port.out.EquipmentRepository
@@ -22,22 +20,18 @@ class AllocationProcessor(
         val allocation = allocationRepository.findById(allocationId) ?: return
         if (allocation.state != AllocationState.PENDING) return
 
-        // Phase 1: find all AVAILABLE equipment and determine which ones are candidates
-        // for at least one required slot (hard constraints only: type + minimumConditionScore)
-        val available = equipmentRepository.findByState(EquipmentState.AVAILABLE)
-        val candidateIds = findCandidateIds(allocation.policy, available)
+        // Issue one ranked SELECT FOR UPDATE SKIP LOCKED sub-query per requirement.
+        // Each sub-query applies hard constraints (type + minimumConditionScore), ranks
+        // candidates by the scoring formula (preferred brand bonus + condition score), and
+        // limits results to the total quantity needed for that equipment type.  The results
+        // are unioned and locked atomically, eliminating any separate non-locking pre-scan.
+        val lockedCandidates = equipmentRepository.findAvailableByPolicyForUpdate(allocation.policy)
 
-        if (candidateIds.isEmpty()) {
+        if (lockedCandidates.isEmpty()) {
             allocationRepository.save(allocation.copy(state = AllocationState.FAILED, allocatedEquipmentIds = emptyList()))
             return
         }
 
-        // Phase 2: lock only the candidates with SELECT FOR UPDATE SKIP LOCKED.
-        // Rows already locked by concurrent transactions are skipped so we only
-        // work with equipment that is truly available to this request.
-        val lockedCandidates = equipmentRepository.findByIdsForUpdate(candidateIds)
-
-        // Phase 3: run the scoring algorithm on the locked candidates.
         val selected = allocationAlgorithm.allocate(
             policy = allocation.policy,
             availableEquipment = lockedCandidates
@@ -48,8 +42,8 @@ class AllocationProcessor(
             return
         }
 
-        // Phase 4: reserve the best-scored equipment; the remaining locked rows are
-        // released automatically when this transaction commits.
+        // Reserve the selected equipment; remaining locked rows are released when the
+        // transaction commits.
         equipmentRepository.saveAll(selected.map { it.copy(state = EquipmentState.RESERVED) })
         allocationRepository.save(
             allocation.copy(
@@ -57,16 +51,6 @@ class AllocationProcessor(
                 allocatedEquipmentIds = selected.map { it.id }
             )
         )
-    }
-
-    private fun findCandidateIds(policy: List<EquipmentPolicyRequirement>, available: List<Equipment>): List<UUID> {
-        val slots = policy.flatMap { req -> List(req.quantity) { req.copy(quantity = 1) } }
-        return available.filter { equipment ->
-            slots.any { req ->
-                equipment.type == req.type &&
-                    (req.minimumConditionScore == null || equipment.conditionScore >= req.minimumConditionScore)
-            }
-        }.map { it.id }
     }
 }
 

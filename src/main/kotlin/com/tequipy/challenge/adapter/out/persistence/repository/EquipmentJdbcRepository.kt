@@ -1,6 +1,7 @@
 package com.tequipy.challenge.adapter.out.persistence.repository
 
 import com.tequipy.challenge.adapter.out.persistence.entity.EquipmentEntity
+import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.model.EquipmentType
 import org.springframework.dao.EmptyResultDataAccessException
@@ -77,14 +78,60 @@ class EquipmentJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
         return jdbcTemplate.query("SELECT * FROM equipments WHERE state = ?", rowMapper, state.name)
     }
 
-    fun findByIdsForUpdate(ids: List<UUID>): List<EquipmentEntity> {
-        if (ids.isEmpty()) return emptyList()
-        val placeholders = ids.joinToString(",") { "?" }
-        return jdbcTemplate.query(
-            "SELECT * FROM equipments WHERE id IN ($placeholders) AND state = ? FOR UPDATE SKIP LOCKED",
-            rowMapper,
-            *ids.toTypedArray(), EquipmentState.AVAILABLE.name
-        )
+    /**
+     * For each requirement in the policy, builds a ranked sub-query that selects the best
+     * available candidates (applying hard constraints and scoring by preferred brand and
+     * condition score). All candidate IDs are unioned and then locked in a single
+     * SELECT FOR UPDATE SKIP LOCKED, eliminating any non-locking pre-scan.
+     *
+     * The LIMIT per sub-query is the total quantity demanded for that equipment type,
+     * so every competing slot of the same type has enough ranked candidates to choose from.
+     */
+    fun findAvailableByPolicyForUpdate(policy: List<EquipmentPolicyRequirement>): List<EquipmentEntity> {
+        if (policy.isEmpty()) return emptyList()
+
+        // Total quantity per type – used as LIMIT for each per-requirement sub-query so
+        // that all competing slots of the same type have sufficient candidates.
+        val quantityPerType = policy.groupBy { it.type }
+            .mapValues { (_, reqs) -> reqs.sumOf { it.quantity } }
+
+        val subQueryParts = mutableListOf<String>()
+        // The outer WHERE state = ? is the first positional parameter; sub-query params follow.
+        val params = mutableListOf<Any>(EquipmentState.AVAILABLE.name)
+
+        for (requirement in policy) {
+            val hasMinCondition = requirement.minimumConditionScore != null
+            val hasPreferredBrand = requirement.preferredBrand != null
+            val totalQtyForType = quantityPerType[requirement.type] ?: requirement.quantity
+
+            val conditionClause = if (hasMinCondition) "AND condition_score >= ?" else ""
+            val scoreExpr = if (hasPreferredBrand) {
+                "CASE WHEN LOWER(brand) = LOWER(?) THEN 10.0 ELSE 0.0 END + condition_score"
+            } else {
+                "condition_score"
+            }
+
+            subQueryParts.add(
+                "(SELECT id FROM equipments" +
+                    " WHERE state = ? AND type = ? $conditionClause" +
+                    " ORDER BY $scoreExpr DESC, purchase_date DESC" +
+                    " LIMIT ?)"
+            )
+
+            params.add(EquipmentState.AVAILABLE.name)
+            params.add(requirement.type.name)
+            if (hasMinCondition) params.add(requirement.minimumConditionScore!!)
+            if (hasPreferredBrand) params.add(requirement.preferredBrand!!)
+            params.add(totalQtyForType)
+        }
+
+        val sql =
+            "SELECT e.id, e.type, e.brand, e.model, e.state, e.condition_score, e.purchase_date, e.retired_reason" +
+                " FROM equipments e" +
+                " WHERE e.state = ? AND e.id IN (${subQueryParts.joinToString(" UNION ")})" +
+                " FOR UPDATE SKIP LOCKED"
+
+        return jdbcTemplate.query(sql, rowMapper, *params.toTypedArray())
     }
 
     fun existsById(id: UUID): Boolean {
