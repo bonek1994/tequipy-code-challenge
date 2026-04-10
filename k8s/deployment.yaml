@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tequipy-app
+  labels:
+    app: tequipy-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tequipy-app
+  template:
+    metadata:
+      labels:
+        app: tequipy-app
+    spec:
+      containers:
+        - name: tequipy-app
+          image: tequipy/challenge:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: tequipy-config
+                  key: APP_PORT
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: tequipy-config
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: tequipy-config
+                  key: DB_PORT
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: tequipy-config
+                  key: DB_NAME
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: tequipy-secret
+                  key: DB_USERNAME
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tequipy-secret
+                  key: DB_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 15
