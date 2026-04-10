@@ -16,12 +16,12 @@ CREATE TABLE IF NOT EXISTS allocation_requests (
 );
 
 CREATE TABLE IF NOT EXISTS allocation_policy_requirements (
-    id                     BIGSERIAL        PRIMARY KEY,
-    allocation_request_id  UUID             NOT NULL REFERENCES allocation_requests(id),
-    type                   VARCHAR(255)     NOT NULL,
-    quantity               INT              NOT NULL,
+    id                      UUID             PRIMARY KEY DEFAULT gen_random_uuid(),
+    allocation_request_id   UUID             NOT NULL REFERENCES allocation_requests(id),
+    type                    VARCHAR(255)     NOT NULL,
+    quantity                INT              NOT NULL,
     minimum_condition_score DOUBLE PRECISION,
-    preferred_brand        VARCHAR(255)
+    preferred_brand         VARCHAR(255)
 );
 
 CREATE TABLE IF NOT EXISTS allocation_equipment_ids (

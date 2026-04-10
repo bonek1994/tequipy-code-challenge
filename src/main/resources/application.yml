@@ -4,9 +4,6 @@ spring:
     username: ${DB_USERNAME:tequipy}
     password: ${DB_PASSWORD:tequipy}
     driver-class-name: org.postgresql.Driver
-  sql:
-    init:
-      mode: always
 
 server:
   port: ${APP_PORT:8080}
