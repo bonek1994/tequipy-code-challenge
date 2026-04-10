@@ -1,0 +1,1 @@
+# tequipy-code-challenge
