@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS allocation_requests (
 );
 
 CREATE TABLE IF NOT EXISTS allocation_policy_requirements (
+    id                     BIGSERIAL        PRIMARY KEY,
     allocation_request_id  UUID             NOT NULL REFERENCES allocation_requests(id),
     type                   VARCHAR(255)     NOT NULL,
     quantity               INT              NOT NULL,
@@ -25,5 +26,6 @@ CREATE TABLE IF NOT EXISTS allocation_policy_requirements (
 
 CREATE TABLE IF NOT EXISTS allocation_equipment_ids (
     allocation_request_id UUID NOT NULL REFERENCES allocation_requests(id),
-    equipment_id          UUID NOT NULL
+    equipment_id          UUID NOT NULL REFERENCES equipments(id),
+    PRIMARY KEY (allocation_request_id, equipment_id)
 );
