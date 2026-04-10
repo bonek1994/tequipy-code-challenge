@@ -23,11 +23,12 @@ class EquipmentServiceTest {
 
     @Test
     fun `registerEquipment should save available equipment`() {
+        // given
         val purchaseDate = LocalDate.of(2025, 1, 10)
         val saved = sampleEquipment(state = EquipmentState.AVAILABLE, purchaseDate = purchaseDate)
-
         every { equipmentRepository.save(any()) } returns saved
 
+        // when
         val result = equipmentService.registerEquipment(
             type = EquipmentType.MAIN_COMPUTER,
             brand = "Apple",
@@ -36,12 +37,14 @@ class EquipmentServiceTest {
             purchaseDate = purchaseDate
         )
 
+        // then
         assertEquals(saved, result)
         verify { equipmentRepository.save(withArg { assertEquals(EquipmentState.AVAILABLE, it.state) }) }
     }
 
     @Test
     fun `registerEquipment should reject invalid condition score`() {
+        // when / then
         assertThrows<BadRequestException> {
             equipmentService.registerEquipment(
                 type = EquipmentType.MONITOR,
@@ -55,8 +58,10 @@ class EquipmentServiceTest {
 
     @Test
     fun `registerEquipment should allow boundary condition scores`() {
+        // given
         every { equipmentRepository.save(any()) } answers { firstArg() }
 
+        // when
         val minResult = equipmentService.registerEquipment(
             type = EquipmentType.KEYBOARD,
             brand = "Logitech",
@@ -72,6 +77,7 @@ class EquipmentServiceTest {
             purchaseDate = LocalDate.of(2024, 5, 1)
         )
 
+        // then
         assertEquals(0.0, minResult.conditionScore)
         assertEquals(1.0, maxResult.conditionScore)
         verify(exactly = 2) { equipmentRepository.save(any()) }
@@ -79,6 +85,7 @@ class EquipmentServiceTest {
 
     @Test
     fun `registerEquipment should reject blank brand or model`() {
+        // when / then
         assertAll(
             {
                 assertThrows<BadRequestException> {
@@ -107,22 +114,25 @@ class EquipmentServiceTest {
 
     @Test
     fun `getEquipment should return equipment when found`() {
+        // given
         val id = UUID.randomUUID()
         val equipment = sampleEquipment(id = id)
-
         every { equipmentRepository.findById(id) } returns equipment
 
+        // when
         val result = equipmentService.getEquipment(id)
 
+        // then
         assertEquals(equipment, result)
     }
 
     @Test
     fun `getEquipment should throw NotFoundException when not found`() {
+        // given
         val id = UUID.randomUUID()
-
         every { equipmentRepository.findById(id) } returns null
 
+        // when / then
         assertThrows<NotFoundException> {
             equipmentService.getEquipment(id)
         }
@@ -130,50 +140,58 @@ class EquipmentServiceTest {
 
     @Test
     fun `listEquipment should return all equipment when state filter is null`() {
+        // given
         val equipmentList = listOf(
             sampleEquipment(type = EquipmentType.MAIN_COMPUTER),
             sampleEquipment(type = EquipmentType.MOUSE)
         )
-
         every { equipmentRepository.findAll() } returns equipmentList
 
+        // when
         val result = equipmentService.listEquipment(null)
 
+        // then
         assertEquals(2, result.size)
         assertEquals(equipmentList, result)
     }
 
     @Test
     fun `listEquipment should filter by state when provided`() {
+        // given
         val equipmentList = listOf(sampleEquipment(state = EquipmentState.RETIRED, retiredReason = "Damaged"))
-
         every { equipmentRepository.findByState(EquipmentState.RETIRED) } returns equipmentList
 
+        // when
         val result = equipmentService.listEquipment(EquipmentState.RETIRED)
 
+        // then
         assertEquals(equipmentList, result)
     }
 
     @Test
     fun `retireEquipment should set retired state with reason`() {
+        // given
         val id = UUID.randomUUID()
         val existing = sampleEquipment(id = id, state = EquipmentState.AVAILABLE)
         val retired = existing.copy(state = EquipmentState.RETIRED, retiredReason = "Broken hinge")
-
         every { equipmentRepository.findById(id) } returns existing
         every { equipmentRepository.save(any()) } returns retired
 
+        // when
         val result = equipmentService.retireEquipment(id, "Broken hinge")
 
+        // then
         assertEquals(EquipmentState.RETIRED, result.state)
         assertEquals("Broken hinge", result.retiredReason)
     }
 
     @Test
     fun `retireEquipment should throw when equipment is not available`() {
+        // given
         val id = UUID.randomUUID()
         every { equipmentRepository.findById(id) } returns sampleEquipment(id = id, state = EquipmentState.RESERVED)
 
+        // when / then
         assertThrows<ConflictException> {
             equipmentService.retireEquipment(id, "No longer needed")
         }
@@ -181,6 +199,7 @@ class EquipmentServiceTest {
 
     @Test
     fun `retireEquipment should reject blank reason`() {
+        // when / then
         assertThrows<BadRequestException> {
             equipmentService.retireEquipment(UUID.randomUUID(), "   ")
         }
@@ -188,9 +207,11 @@ class EquipmentServiceTest {
 
     @Test
     fun `retireEquipment should throw not found when missing`() {
+        // given
         val id = UUID.randomUUID()
         every { equipmentRepository.findById(id) } returns null
 
+        // when / then
         assertThrows<NotFoundException> {
             equipmentService.retireEquipment(id, "Missing")
         }
