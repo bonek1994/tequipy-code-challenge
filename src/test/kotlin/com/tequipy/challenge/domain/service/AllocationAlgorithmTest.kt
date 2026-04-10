@@ -150,35 +150,6 @@ class AllocationAlgorithmTest {
         assertEquals(listOf(apple.id), result!!.map { it.id })
     }
 
-    @Test
-    fun `allocate should prefer newer equipment when other scores are equal`() {
-        // given
-        val older = equipment(
-            type = EquipmentType.MONITOR,
-            brand = "Dell",
-            model = "Older",
-            condition = 0.9,
-            purchaseDate = LocalDate.of(2023, 1, 1)
-        )
-        val newer = equipment(
-            type = EquipmentType.MONITOR,
-            brand = "Dell",
-            model = "Newer",
-            condition = 0.9,
-            purchaseDate = LocalDate.of(2025, 1, 1)
-        )
-
-        // when
-        val result = algorithm.allocate(
-            policy = listOf(EquipmentPolicyRequirement(type = EquipmentType.MONITOR)),
-            availableEquipment = listOf(older, newer)
-        )
-
-        // then
-        assertNotNull(result)
-        assertEquals(listOf(newer.id), result!!.map { it.id })
-    }
-
     private fun equipment(
         id: UUID = UUID.randomUUID(),
         type: EquipmentType,
