@@ -1,4 +1,4 @@
-package com.tequipy.challenge.adapter.`in`.messaging
+package com.tequipy.challenge.adapter.messaging
 
 import com.tequipy.challenge.domain.service.AllocationProcessor
 import io.mockk.mockk

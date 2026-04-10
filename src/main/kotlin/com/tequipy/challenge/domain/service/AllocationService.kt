@@ -3,15 +3,14 @@ package com.tequipy.challenge.domain.service
 import com.tequipy.challenge.domain.BadRequestException
 import com.tequipy.challenge.domain.ConflictException
 import com.tequipy.challenge.domain.NotFoundException
-import com.tequipy.challenge.domain.event.AllocationCreatedEvent
 import com.tequipy.challenge.domain.model.AllocationRequest
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.port.`in`.AllocationUseCase
+import com.tequipy.challenge.domain.port.out.AllocationEventPublisher
 import com.tequipy.challenge.domain.port.out.AllocationRepository
 import com.tequipy.challenge.domain.port.out.EquipmentRepository
-import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -21,7 +20,7 @@ import java.util.UUID
 class AllocationService(
     private val allocationRepository: AllocationRepository,
     private val equipmentRepository: EquipmentRepository,
-    private val eventPublisher: ApplicationEventPublisher
+    private val allocationEventPublisher: AllocationEventPublisher
 ) : AllocationUseCase {
 
     override fun createAllocation(employeeId: UUID, policy: List<EquipmentPolicyRequirement>): AllocationRequest {
@@ -45,7 +44,7 @@ class AllocationService(
             )
         )
 
-        eventPublisher.publishEvent(AllocationCreatedEvent(allocation.id))
+        allocationEventPublisher.publishAllocationCreated(allocation.id)
         return allocation
     }
 

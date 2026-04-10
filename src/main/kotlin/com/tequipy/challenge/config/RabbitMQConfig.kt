@@ -13,9 +13,9 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate
 import org.springframework.amqp.rabbit.retry.RepublishMessageRecoverer
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.retry.support.RetryTemplate
 import org.springframework.retry.interceptor.RetryOperationsInterceptor
 import org.springframework.retry.policy.SimpleRetryPolicy
-
 @Configuration
 class RabbitMQConfig {
 
@@ -50,12 +50,17 @@ class RabbitMQConfig {
     fun allocationRetryInterceptor(
         republishMessageRecoverer: RepublishMessageRecoverer
     ): RetryOperationsInterceptor {
-        val retryPolicy = SimpleRetryPolicy(
-            MAX_RETRY_ATTEMPTS,
-            mapOf(AllocationLockContentionException::class.java to true)
+        val retryTemplate = RetryTemplate()
+        retryTemplate.setRetryPolicy(
+            SimpleRetryPolicy(
+                MAX_RETRY_ATTEMPTS,
+                mapOf(AllocationLockContentionException::class.java to true),
+                true,   // traverseCauses
+                false   // defaultValue: don't retry exceptions not in the map
+            )
         )
         return RetryInterceptorBuilder.stateless()
-            .retryPolicy(retryPolicy)
+            .retryOperations(retryTemplate)
             .recoverer(republishMessageRecoverer)
             .build()
     }

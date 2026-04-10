@@ -38,8 +38,9 @@ class AllocationProcessor(
         // work with equipment that is truly available to this request.
         val lockedCandidates = equipmentRepository.findByIdsForUpdate(candidateIds)
 
-        // If all candidates are locked by concurrent transactions, throw to trigger retry.
-        if (lockedCandidates.isEmpty()) {
+        // If any candidates are locked by concurrent transactions (partial or full contention),
+        // throw to trigger retry so we can attempt again with all candidates available.
+        if (lockedCandidates.size < candidateIds.size) {
             throw AllocationLockContentionException(allocationId)
         }
 
