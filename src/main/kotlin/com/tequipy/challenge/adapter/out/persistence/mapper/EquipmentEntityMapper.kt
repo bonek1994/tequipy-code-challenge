@@ -9,15 +9,23 @@ class EquipmentEntityMapper {
 
     fun toDomain(entity: EquipmentEntity): Equipment = Equipment(
         id = entity.id,
-        name = entity.name,
-        serialNumber = entity.serialNumber,
-        employeeId = entity.employeeId
+        type = entity.type,
+        brand = entity.brand,
+        model = entity.model,
+        state = entity.state,
+        conditionScore = entity.conditionScore,
+        purchaseDate = entity.purchaseDate,
+        retiredReason = entity.retiredReason
     )
 
     fun toEntity(domain: Equipment): EquipmentEntity = EquipmentEntity(
         id = domain.id,
-        name = domain.name,
-        serialNumber = domain.serialNumber,
-        employeeId = domain.employeeId
+        type = domain.type,
+        brand = domain.brand,
+        model = domain.model,
+        state = domain.state,
+        conditionScore = domain.conditionScore,
+        purchaseDate = domain.purchaseDate,
+        retiredReason = domain.retiredReason
     )
 }

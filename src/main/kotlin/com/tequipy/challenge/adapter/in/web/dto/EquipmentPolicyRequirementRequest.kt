@@ -3,24 +3,20 @@ package com.tequipy.challenge.adapter.`in`.web.dto
 import com.tequipy.challenge.domain.model.EquipmentType
 import jakarta.validation.constraints.DecimalMax
 import jakarta.validation.constraints.DecimalMin
-import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotNull
-import java.time.LocalDate
 
-data class EquipmentRequest(
+data class EquipmentPolicyRequirementRequest(
     @field:NotNull
     val type: EquipmentType,
 
-    @field:NotBlank
-    val brand: String,
-
-    @field:NotBlank
-    val model: String,
+    @field:Min(1)
+    val quantity: Int = 1,
 
     @field:DecimalMin("0.0")
     @field:DecimalMax("1.0")
-    val conditionScore: Double,
+    val minimumConditionScore: Double? = null,
 
-    @field:NotNull
-    val purchaseDate: LocalDate
+    val preferredBrand: String? = null
 )
+

@@ -1,9 +1,10 @@
 package com.tequipy.challenge.adapter.`in`.web
 
-import com.tequipy.challenge.adapter.`in`.web.dto.EmployeeRequest
-import com.tequipy.challenge.adapter.`in`.web.dto.EmployeeResponse
 import com.tequipy.challenge.adapter.`in`.web.dto.EquipmentRequest
 import com.tequipy.challenge.adapter.`in`.web.dto.EquipmentResponse
+import com.tequipy.challenge.adapter.`in`.web.dto.RetireEquipmentRequest
+import com.tequipy.challenge.domain.model.EquipmentState
+import com.tequipy.challenge.domain.model.EquipmentType
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -19,6 +20,7 @@ import org.springframework.test.context.DynamicPropertySource
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
+import java.time.LocalDate
 import java.util.UUID
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -48,47 +50,35 @@ class EquipmentControllerIntegrationTest {
         }
     }
 
-    private fun equipmentUrl() = "http://localhost:$port/api/equipment"
-    private fun employeeUrl() = "http://localhost:$port/api/employees"
+    private fun equipmentUrl() = "http://localhost:$port/equipments"
 
     @Test
     fun `POST equipment should create and return 201`() {
-        val request = EquipmentRequest("Laptop Pro", "SN-LAPTOP-001")
+        val request = EquipmentRequest(
+            type = EquipmentType.MAIN_COMPUTER,
+            brand = "Apple",
+            model = "MacBook Pro",
+            conditionScore = 0.95,
+            purchaseDate = LocalDate.of(2025, 1, 10)
+        )
 
         val response = restTemplate.postForEntity(equipmentUrl(), request, EquipmentResponse::class.java)
 
         assertEquals(HttpStatus.CREATED, response.statusCode)
         assertNotNull(response.body)
-        assertEquals("Laptop Pro", response.body!!.name)
-        assertEquals("SN-LAPTOP-001", response.body!!.serialNumber)
-        assertNull(response.body!!.employeeId)
+        assertEquals(EquipmentType.MAIN_COMPUTER, response.body!!.type)
+        assertEquals("Apple", response.body!!.brand)
+        assertEquals(EquipmentState.AVAILABLE, response.body!!.state)
     }
 
-    @Test
-    fun `GET equipment by id should return 200 when found`() {
-        val created = restTemplate.postForEntity(
-            equipmentUrl(),
-            EquipmentRequest("Monitor", "SN-MON-001"),
-            EquipmentResponse::class.java
-        ).body!!
-
-        val response = restTemplate.getForEntity("${equipmentUrl()}/${created.id}", EquipmentResponse::class.java)
-
-        assertEquals(HttpStatus.OK, response.statusCode)
-        assertEquals(created.id, response.body!!.id)
-        assertEquals("Monitor", response.body!!.name)
-    }
-
-    @Test
-    fun `GET equipment by id should return 404 when not found`() {
-        val response = restTemplate.getForEntity("${equipmentUrl()}/${UUID.randomUUID()}", Map::class.java)
-
-        assertEquals(HttpStatus.NOT_FOUND, response.statusCode)
-    }
 
     @Test
     fun `GET all equipment should return 200`() {
-        restTemplate.postForEntity(equipmentUrl(), EquipmentRequest("Keyboard", "SN-KB-001"), EquipmentResponse::class.java)
+        restTemplate.postForEntity(
+            equipmentUrl(),
+            EquipmentRequest(EquipmentType.KEYBOARD, "Logitech", "MX Keys", 0.93, LocalDate.of(2024, 5, 1)),
+            EquipmentResponse::class.java
+        )
 
         val response = restTemplate.getForEntity(equipmentUrl(), Array<EquipmentResponse>::class.java)
 
@@ -97,113 +87,57 @@ class EquipmentControllerIntegrationTest {
     }
 
     @Test
-    fun `PUT equipment should update and return 200`() {
+    fun `GET equipments filtered by state should return matching items`() {
         val created = restTemplate.postForEntity(
             equipmentUrl(),
-            EquipmentRequest("Old Mouse", "SN-MS-001"),
+            EquipmentRequest(EquipmentType.MOUSE, "Logitech", "MX Master 3S", 0.91, LocalDate.of(2023, 3, 1)),
             EquipmentResponse::class.java
         ).body!!
 
-        val updateRequest = EquipmentRequest("New Mouse", "SN-MS-002")
-        val response = restTemplate.exchange(
-            "${equipmentUrl()}/${created.id}",
-            HttpMethod.PUT,
-            HttpEntity(updateRequest),
+        restTemplate.postForEntity(
+            "${equipmentUrl()}/${created.id}/retire",
+            RetireEquipmentRequest("Damaged sensor"),
             EquipmentResponse::class.java
         )
 
+        val response = restTemplate.getForEntity("${equipmentUrl()}?state=RETIRED", Array<EquipmentResponse>::class.java)
+
         assertEquals(HttpStatus.OK, response.statusCode)
-        assertEquals("New Mouse", response.body!!.name)
-        assertEquals("SN-MS-002", response.body!!.serialNumber)
+        assertTrue(response.body!!.any { it.id == created.id && it.state == EquipmentState.RETIRED })
     }
 
     @Test
-    fun `DELETE equipment should return 204`() {
+    fun `POST retire equipment should return retired equipment`() {
         val created = restTemplate.postForEntity(
             equipmentUrl(),
-            EquipmentRequest("Headset", "SN-HS-001"),
+            EquipmentRequest(EquipmentType.MONITOR, "LG", "UltraFine", 0.82, LocalDate.of(2022, 9, 1)),
             EquipmentResponse::class.java
         ).body!!
 
         val response = restTemplate.exchange(
-            "${equipmentUrl()}/${created.id}",
-            HttpMethod.DELETE,
-            null,
-            Void::class.java
-        )
-
-        assertEquals(HttpStatus.NO_CONTENT, response.statusCode)
-    }
-
-    @Test
-    fun `assign equipment to employee should return 200`() {
-        val employee = restTemplate.postForEntity(
-            employeeUrl(),
-            EmployeeRequest("Frank", "frank@tequipy.com", "IT"),
-            EmployeeResponse::class.java
-        ).body!!
-
-        val equipment = restTemplate.postForEntity(
-            equipmentUrl(),
-            EquipmentRequest("Tablet", "SN-TAB-001"),
-            EquipmentResponse::class.java
-        ).body!!
-
-        val response = restTemplate.exchange(
-            "${equipmentUrl()}/${equipment.id}/assign/${employee.id}",
-            HttpMethod.PUT,
-            null,
+            "${equipmentUrl()}/${created.id}/retire",
+            HttpMethod.POST,
+            HttpEntity(RetireEquipmentRequest("Panel damaged")),
             EquipmentResponse::class.java
         )
 
         assertEquals(HttpStatus.OK, response.statusCode)
-        assertEquals(employee.id, response.body!!.employeeId)
+        assertEquals(EquipmentState.RETIRED, response.body!!.state)
+        assertEquals("Panel damaged", response.body!!.retiredReason)
     }
 
     @Test
-    fun `unassign equipment should return 200 with null employeeId`() {
-        val employee = restTemplate.postForEntity(
-            employeeUrl(),
-            EmployeeRequest("Grace", "grace@tequipy.com", "Ops"),
-            EmployeeResponse::class.java
-        ).body!!
-
-        val equipment = restTemplate.postForEntity(
+    fun `retire reserved equipment path should return 404 when missing`() {
+        restTemplate.postForEntity(
             equipmentUrl(),
-            EquipmentRequest("Docking Station", "SN-DOCK-001"),
-            EquipmentResponse::class.java
-        ).body!!
-
-        restTemplate.exchange(
-            "${equipmentUrl()}/${equipment.id}/assign/${employee.id}",
-            HttpMethod.PUT,
-            null,
-            EquipmentResponse::class.java
-        )
-
-        val response = restTemplate.exchange(
-            "${equipmentUrl()}/${equipment.id}/unassign",
-            HttpMethod.PUT,
-            null,
-            EquipmentResponse::class.java
-        )
-
-        assertEquals(HttpStatus.OK, response.statusCode)
-        assertNull(response.body!!.employeeId)
-    }
-
-    @Test
-    fun `assign equipment should return 404 when employee not found`() {
-        val equipment = restTemplate.postForEntity(
-            equipmentUrl(),
-            EquipmentRequest("Webcam", "SN-CAM-001"),
+            EquipmentRequest(EquipmentType.MONITOR, "AOC", "24G2", 0.7, LocalDate.of(2021, 2, 1)),
             EquipmentResponse::class.java
         ).body!!
 
         val response = restTemplate.exchange(
-            "${equipmentUrl()}/${equipment.id}/assign/${UUID.randomUUID()}",
-            HttpMethod.PUT,
-            null,
+            "${equipmentUrl()}/${UUID.randomUUID()}/retire",
+            HttpMethod.POST,
+            HttpEntity(RetireEquipmentRequest("Missing")),
             Map::class.java
         )
 

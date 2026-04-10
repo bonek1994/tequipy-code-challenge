@@ -5,7 +5,7 @@ metadata:
   labels:
     app: tequipy-app
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: tequipy-app
@@ -14,9 +14,33 @@ spec:
       labels:
         app: tequipy-app
     spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:15-alpine
+          command:
+            - sh
+            - -c
+            - until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USERNAME"; do echo "waiting for postgres"; sleep 2; done
+          env:
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: tequipy-config
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: tequipy-config
+                  key: DB_PORT
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: tequipy-secret
+                  key: DB_USERNAME
       containers:
         - name: tequipy-app
-          image: tequipy/challenge:latest
+          image: tequipy-code-challenge:local
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           env:
@@ -50,15 +74,19 @@ spec:
                 secretKeyRef:
                   name: tequipy-secret
                   key: DB_PASSWORD
-          readinessProbe:
-            httpGet:
-              path: /actuator/health
+          startupProbe:
+            tcpSocket:
               port: 8080
-            initialDelaySeconds: 30
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
-            httpGet:
-              path: /actuator/health
+            tcpSocket:
               port: 8080
-            initialDelaySeconds: 60
+            initialDelaySeconds: 20
             periodSeconds: 15

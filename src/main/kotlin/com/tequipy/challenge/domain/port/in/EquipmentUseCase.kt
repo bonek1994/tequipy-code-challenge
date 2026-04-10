@@ -1,14 +1,21 @@
 package com.tequipy.challenge.domain.port.`in`
 
 import com.tequipy.challenge.domain.model.Equipment
+import com.tequipy.challenge.domain.model.EquipmentState
+import com.tequipy.challenge.domain.model.EquipmentType
+import java.time.LocalDate
 import java.util.UUID
 
 interface EquipmentUseCase {
-    fun createEquipment(name: String, serialNumber: String): Equipment
+    fun registerEquipment(
+        type: EquipmentType,
+        brand: String,
+        model: String,
+        conditionScore: Double,
+        purchaseDate: LocalDate
+    ): Equipment
+
     fun getEquipment(id: UUID): Equipment
-    fun getAllEquipment(): List<Equipment>
-    fun updateEquipment(id: UUID, name: String, serialNumber: String): Equipment
-    fun deleteEquipment(id: UUID)
-    fun assignEquipment(equipmentId: UUID, employeeId: UUID): Equipment
-    fun unassignEquipment(equipmentId: UUID): Equipment
+    fun listEquipment(state: EquipmentState?): List<Equipment>
+    fun retireEquipment(id: UUID, reason: String): Equipment
 }

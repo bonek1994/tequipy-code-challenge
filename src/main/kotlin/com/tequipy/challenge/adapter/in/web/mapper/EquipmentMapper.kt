@@ -9,9 +9,13 @@ class EquipmentMapper {
 
     fun toResponse(equipment: Equipment): EquipmentResponse = EquipmentResponse(
         id = equipment.id,
-        name = equipment.name,
-        serialNumber = equipment.serialNumber,
-        employeeId = equipment.employeeId
+        type = equipment.type,
+        brand = equipment.brand,
+        model = equipment.model,
+        state = equipment.state,
+        conditionScore = equipment.conditionScore,
+        purchaseDate = equipment.purchaseDate,
+        retiredReason = equipment.retiredReason
     )
 
     fun toResponseList(equipment: List<Equipment>): List<EquipmentResponse> =

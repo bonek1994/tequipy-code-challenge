@@ -1,0 +1,11 @@
+.gradle
+build
+.idea
+.git
+out
+*.iml
+k8s
+pdfbox-app.jar
+
+
+

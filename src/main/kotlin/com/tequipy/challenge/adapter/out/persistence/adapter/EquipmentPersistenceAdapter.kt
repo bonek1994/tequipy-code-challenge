@@ -3,6 +3,7 @@ package com.tequipy.challenge.adapter.out.persistence.adapter
 import com.tequipy.challenge.adapter.out.persistence.mapper.EquipmentEntityMapper
 import com.tequipy.challenge.adapter.out.persistence.repository.EquipmentJpaRepository
 import com.tequipy.challenge.domain.model.Equipment
+import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.port.out.EquipmentRepository
 import org.springframework.stereotype.Component
 import java.util.UUID
@@ -19,6 +20,10 @@ class EquipmentPersistenceAdapter(
         return mapper.toDomain(saved)
     }
 
+    override fun saveAll(equipment: List<Equipment>): List<Equipment> {
+        return jpaRepository.saveAll(equipment.map(mapper::toEntity)).map(mapper::toDomain)
+    }
+
     override fun findById(id: UUID): Equipment? {
         return jpaRepository.findById(id).orElse(null)?.let { mapper.toDomain(it) }
     }
@@ -27,12 +32,12 @@ class EquipmentPersistenceAdapter(
         return jpaRepository.findAll().map { mapper.toDomain(it) }
     }
 
-    override fun findByEmployeeId(employeeId: UUID): List<Equipment> {
-        return jpaRepository.findByEmployeeId(employeeId).map { mapper.toDomain(it) }
+    override fun findByIds(ids: List<UUID>): List<Equipment> {
+        return jpaRepository.findAllById(ids).map(mapper::toDomain)
     }
 
-    override fun deleteById(id: UUID) {
-        jpaRepository.deleteById(id)
+    override fun findByState(state: EquipmentState): List<Equipment> {
+        return jpaRepository.findByState(state).map(mapper::toDomain)
     }
 
     override fun existsById(id: UUID): Boolean {
