@@ -118,18 +118,21 @@ spec:
                   name: tequipy-secret
                   key: RABBITMQ_PASSWORD
           startupProbe:
-            tcpSocket:
+            httpGet:
+              path: /actuator/health/liveness
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 5
             failureThreshold: 12
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /actuator/health/readiness
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /actuator/health/liveness
               port: 8080
             initialDelaySeconds: 20
             periodSeconds: 15
