@@ -26,10 +26,11 @@ class AllocationProcessorTest {
     fun `processAllocation should do nothing when allocation is missing`() {
         // given
         val allocationId = UUID.randomUUID()
+        val pending = allocation(id = allocationId, state = AllocationState.PENDING, policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)))
         every { allocationRepository.findById(allocationId) } returns null
 
         // when
-        processor.processAllocation(allocationId)
+        processor.processAllocation(pending)
 
         // then
         verify(exactly = 0) { equipmentRepository.findAvailableWithMinConditionScore(any(), any()) }
@@ -41,6 +42,11 @@ class AllocationProcessorTest {
     fun `processAllocation should ignore allocation that is not pending`() {
         // given
         val allocationId = UUID.randomUUID()
+        val messageAllocation = allocation(
+            id = allocationId,
+            state = AllocationState.PENDING,
+            policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1))
+        )
         every { allocationRepository.findById(allocationId) } returns allocation(
             id = allocationId,
             state = AllocationState.ALLOCATED,
@@ -48,7 +54,7 @@ class AllocationProcessorTest {
         )
 
         // when
-        processor.processAllocation(allocationId)
+        processor.processAllocation(messageAllocation)
 
         // then
         verify(exactly = 0) { equipmentRepository.findAvailableWithMinConditionScore(any(), any()) }
@@ -70,7 +76,7 @@ class AllocationProcessorTest {
         every { allocationRepository.save(any()) } answers { firstArg() }
 
         // when
-        processor.processAllocation(allocationId)
+        processor.processAllocation(pending)
 
         // then
         verify(exactly = 0) { equipmentRepository.saveAll(any()) }
@@ -100,7 +106,7 @@ class AllocationProcessorTest {
 
         // when / then
         assertThrows(com.tequipy.challenge.domain.AllocationLockContentionException::class.java) {
-            processor.processAllocation(allocationId)
+            processor.processAllocation(pending)
         }
         verify(exactly = 0) { equipmentRepository.saveAll(any()) }
         verify(exactly = 0) { allocationRepository.save(any()) }
@@ -124,7 +130,7 @@ class AllocationProcessorTest {
 
         // when / then
         assertThrows(com.tequipy.challenge.domain.AllocationLockContentionException::class.java) {
-            processor.processAllocation(allocationId)
+            processor.processAllocation(pending)
         }
         verify(exactly = 0) { equipmentRepository.saveAll(any()) }
         verify(exactly = 0) { allocationRepository.save(any()) }
@@ -147,7 +153,7 @@ class AllocationProcessorTest {
         every { allocationRepository.save(any()) } answers { firstArg() }
 
         // when
-        processor.processAllocation(allocationId)
+        processor.processAllocation(pending)
 
         // then
         verify {

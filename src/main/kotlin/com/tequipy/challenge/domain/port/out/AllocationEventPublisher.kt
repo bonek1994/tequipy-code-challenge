@@ -1,7 +1,7 @@
 package com.tequipy.challenge.domain.port.out
 
-import java.util.UUID
+import com.tequipy.challenge.domain.model.AllocationRequest
 
 interface AllocationEventPublisher {
-    fun publishAllocationCreated(allocationId: UUID)
+    fun publishAllocationCreated(allocation: AllocationRequest)
 }
