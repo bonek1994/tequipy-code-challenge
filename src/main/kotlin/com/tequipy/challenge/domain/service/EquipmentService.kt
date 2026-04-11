@@ -8,7 +8,7 @@ import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.model.EquipmentType
 import com.tequipy.challenge.domain.port.`in`.EquipmentUseCase
 import com.tequipy.challenge.domain.port.out.EquipmentRepository
-import org.slf4j.LoggerFactory
+import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDate
@@ -20,7 +20,7 @@ class EquipmentService(
     private val equipmentRepository: EquipmentRepository
 ) : EquipmentUseCase {
 
-    private val logger = LoggerFactory.getLogger(javaClass)
+    private val logger = KotlinLogging.logger {}
 
     override fun registerEquipment(
         type: EquipmentType,
@@ -36,7 +36,7 @@ class EquipmentService(
             throw BadRequestException("brand and model must not be blank")
         }
 
-        logger.info("Registering equipment: type={}, brand={}, model={}", type, brand, model)
+        logger.info { "Registering equipment: type=$type, brand=$brand, model=$model" }
         val equipment = Equipment(
             id = UUID.randomUUID(),
             type = type,
@@ -48,7 +48,7 @@ class EquipmentService(
             retiredReason = null
         )
         val saved = equipmentRepository.save(equipment)
-        logger.info("Equipment registered: id={}", saved.id)
+        logger.info { "Equipment registered: id=${saved.id}" }
         return saved
     }
 
@@ -75,14 +75,14 @@ class EquipmentService(
             throw ConflictException("Only available equipment can be retired")
         }
 
-        logger.info("Retiring equipment: id={}", id)
+        logger.info { "Retiring equipment: id=$id" }
         val retired = equipmentRepository.save(
             equipment.copy(
                 state = EquipmentState.RETIRED,
                 retiredReason = reason
             )
         )
-        logger.info("Equipment retired: id={}", retired.id)
+        logger.info { "Equipment retired: id=${retired.id}" }
         return retired
     }
 }

@@ -11,7 +11,7 @@ import com.tequipy.challenge.domain.port.`in`.AllocationUseCase
 import com.tequipy.challenge.domain.port.out.AllocationEventPublisher
 import com.tequipy.challenge.domain.port.out.AllocationRepository
 import com.tequipy.challenge.domain.port.out.EquipmentRepository
-import org.slf4j.LoggerFactory
+import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -24,7 +24,7 @@ class AllocationService(
     private val allocationEventPublisher: AllocationEventPublisher
 ) : AllocationUseCase {
 
-    private val logger = LoggerFactory.getLogger(javaClass)
+    private val logger = KotlinLogging.logger {}
 
     override fun createAllocation(
         policy: List<EquipmentPolicyRequirement>
@@ -39,7 +39,7 @@ class AllocationService(
             throw BadRequestException("minimumConditionScore must be between 0.0 and 1.0")
         }
 
-        logger.info("Creating allocation with {} policy requirement(s)", policy.size)
+        logger.info { "Creating allocation with ${policy.size} policy requirement(s)" }
         val allocation = allocationRepository.save(
             AllocationRequest(
                 id = UUID.randomUUID(),
@@ -48,7 +48,7 @@ class AllocationService(
                 allocatedEquipmentIds = emptyList()
             )
         )
-        logger.info("Allocation created: id={}", allocation.id)
+        logger.info { "Allocation created: id=${allocation.id}" }
 
         allocationEventPublisher.publishAllocationCreated(allocation)
         return allocation
@@ -66,12 +66,12 @@ class AllocationService(
             throw ConflictException("Only allocated requests can be confirmed")
         }
 
-        logger.info("Confirming allocation: id={}", id)
+        logger.info { "Confirming allocation: id=$id" }
         val equipments = equipmentRepository.findByIds(allocation.allocatedEquipmentIds)
         equipmentRepository.saveAll(equipments.map { it.copy(state = EquipmentState.ASSIGNED) })
 
         val confirmed = allocationRepository.save(allocation.copy(state = AllocationState.CONFIRMED))
-        logger.info("Allocation confirmed: id={}", id)
+        logger.info { "Allocation confirmed: id=$id" }
         return confirmed
     }
 
@@ -81,7 +81,7 @@ class AllocationService(
             throw ConflictException("Only pending, allocated or failed requests can be cancelled")
         }
 
-        logger.info("Cancelling allocation: id={}", id)
+        logger.info { "Cancelling allocation: id=$id" }
         if (allocation.allocatedEquipmentIds.isNotEmpty()) {
             val equipments = equipmentRepository.findByIds(allocation.allocatedEquipmentIds)
             equipmentRepository.saveAll(
@@ -97,7 +97,7 @@ class AllocationService(
                 allocatedEquipmentIds = emptyList()
             )
         )
-        logger.info("Allocation cancelled: id={}", id)
+        logger.info { "Allocation cancelled: id=$id" }
         return cancelled
     }
 }

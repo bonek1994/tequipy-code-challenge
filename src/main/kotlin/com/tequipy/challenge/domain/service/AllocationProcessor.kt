@@ -8,7 +8,7 @@ import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.port.out.AllocationRepository
 import com.tequipy.challenge.domain.port.out.EquipmentRepository
-import org.slf4j.LoggerFactory
+import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -19,7 +19,7 @@ class AllocationProcessor(
     private val equipmentRepository: EquipmentRepository
 ) {
     private val allocationAlgorithm = AllocationAlgorithm()
-    private val logger = LoggerFactory.getLogger(javaClass)
+    private val logger = KotlinLogging.logger {}
 
     @Transactional
     fun processAllocation(allocation: AllocationRequest) {
@@ -28,7 +28,7 @@ class AllocationProcessor(
         val dbAllocation = allocationRepository.findById(allocation.id) ?: return
         if (dbAllocation.state != AllocationState.PENDING) return
 
-        logger.info("Processing allocation: id={}", allocation.id)
+        logger.info { "Processing allocation: id=${allocation.id}" }
 
         // Compute the global minimum condition score and required equipment types from the policy.
         // Both are used as upfront DB-level filters to exclude ineligible equipment early.
@@ -44,7 +44,7 @@ class AllocationProcessor(
         val candidateIds = findCandidateIds(allocation.policy, available)
 
         if (candidateIds.isEmpty()) {
-            logger.warn("Allocation {} failed: no candidate equipment found for policy", allocation.id)
+            logger.warn { "Allocation ${allocation.id} failed: no candidate equipment found for policy" }
             allocationRepository.save(dbAllocation.copy(state = AllocationState.FAILED, allocatedEquipmentIds = emptyList()))
             return
         }
@@ -58,10 +58,9 @@ class AllocationProcessor(
         // If any candidates are locked by concurrent transactions (partial or full contention),
         // throw to trigger retry so we can attempt again with all candidates available.
         if (lockedCandidates.size < candidateIds.size) {
-            logger.warn(
-                "Lock contention for allocation {}: obtained {}/{} candidate locks, triggering retry",
-                allocation.id, lockedCandidates.size, candidateIds.size
-            )
+            logger.warn {
+                "Lock contention for allocation ${allocation.id}: obtained ${lockedCandidates.size}/${candidateIds.size} candidate locks, triggering retry"
+            }
             throw AllocationLockContentionException(allocation.id)
         }
 
@@ -72,7 +71,7 @@ class AllocationProcessor(
         )
 
         if (selected == null) {
-            logger.warn("Allocation {} failed: algorithm could not satisfy policy requirements", allocation.id)
+            logger.warn { "Allocation ${allocation.id} failed: algorithm could not satisfy policy requirements" }
             allocationRepository.save(dbAllocation.copy(state = AllocationState.FAILED, allocatedEquipmentIds = emptyList()))
             return
         }
@@ -86,7 +85,7 @@ class AllocationProcessor(
                 allocatedEquipmentIds = selected.map { it.id }
             )
         )
-        logger.info("Allocation {} processed successfully: reserved {} equipment item(s)", allocation.id, selected.size)
+        logger.info { "Allocation ${allocation.id} processed successfully: reserved ${selected.size} equipment item(s)" }
     }
 
     private fun findCandidateIds(policy: List<EquipmentPolicyRequirement>, available: List<Equipment>): List<UUID> {
