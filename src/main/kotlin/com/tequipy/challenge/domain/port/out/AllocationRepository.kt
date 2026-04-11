@@ -8,4 +8,3 @@ interface AllocationRepository {
     fun findById(id: UUID): AllocationRequest?
     fun findByIdempotencyKey(key: UUID): AllocationRequest?
 }
-

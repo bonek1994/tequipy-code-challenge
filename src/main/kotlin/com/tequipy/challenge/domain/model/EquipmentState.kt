@@ -6,4 +6,3 @@ enum class EquipmentState {
     ASSIGNED,
     RETIRED
 }
-

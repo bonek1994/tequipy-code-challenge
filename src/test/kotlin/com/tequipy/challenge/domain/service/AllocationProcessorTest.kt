@@ -198,4 +198,3 @@ class AllocationProcessorTest {
         retiredReason = null
     )
 }
-

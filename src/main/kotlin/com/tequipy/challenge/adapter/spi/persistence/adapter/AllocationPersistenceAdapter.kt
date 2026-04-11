@@ -26,5 +26,3 @@ class AllocationPersistenceAdapter(
         return jdbcRepository.findByIdempotencyKey(key)?.let(mapper::toDomain)
     }
 }
-
-

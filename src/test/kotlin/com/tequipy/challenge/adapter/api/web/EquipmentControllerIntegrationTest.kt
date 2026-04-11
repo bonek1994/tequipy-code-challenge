@@ -71,7 +71,6 @@ class EquipmentControllerIntegrationTest {
         assertEquals(EquipmentState.AVAILABLE, response.body!!.state)
     }
 
-
     @Test
     fun `GET all equipment should return 200`() {
         restTemplate.postForEntity(

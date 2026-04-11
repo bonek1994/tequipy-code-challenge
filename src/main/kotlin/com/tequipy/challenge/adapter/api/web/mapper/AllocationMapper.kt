@@ -32,4 +32,3 @@ class AllocationMapper {
         preferredBrand = requirement.preferredBrand
     )
 }
-

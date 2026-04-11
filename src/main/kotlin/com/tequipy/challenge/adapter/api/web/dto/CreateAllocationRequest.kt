@@ -11,4 +11,3 @@ data class CreateAllocationRequest(
     @Schema(description = "List of equipment requirements; must contain at least one entry", required = true)
     val policy: List<EquipmentPolicyRequirementRequest>
 )
-

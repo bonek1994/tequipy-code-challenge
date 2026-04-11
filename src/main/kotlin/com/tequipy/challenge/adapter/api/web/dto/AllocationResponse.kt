@@ -17,4 +17,3 @@ data class AllocationResponse(
     @Schema(description = "Full details of equipment reserved or assigned by this allocation")
     val allocatedEquipments: List<EquipmentResponse>
 )
-

@@ -39,4 +39,3 @@ class AllocationRequestEntityMapper {
         preferredBrand = requirement.preferredBrand
     )
 }
-

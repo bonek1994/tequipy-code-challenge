@@ -6,4 +6,3 @@ data class EquipmentPolicyRequirement(
 	val minimumConditionScore: Double? = null,
 	val preferredBrand: String? = null
 )
-

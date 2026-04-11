@@ -6,4 +6,3 @@ enum class EquipmentType {
     KEYBOARD,
     MOUSE
 }
-

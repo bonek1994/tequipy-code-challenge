@@ -10,4 +10,3 @@ interface AllocationUseCase {
     fun confirmAllocation(id: UUID): AllocationRequest
     fun cancelAllocation(id: UUID): AllocationRequest
 }
-

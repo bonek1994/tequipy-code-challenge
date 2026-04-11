@@ -53,4 +53,3 @@ class EquipmentPersistenceAdapter(
         return jdbcRepository.existsById(id)
     }
 }
-

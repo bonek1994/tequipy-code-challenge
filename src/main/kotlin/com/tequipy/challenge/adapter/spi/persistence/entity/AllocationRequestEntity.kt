@@ -10,4 +10,3 @@ data class AllocationRequestEntity(
     val allocatedEquipmentIds: List<UUID>,
     val idempotencyKey: UUID? = null
 )
-

@@ -168,4 +168,3 @@ class AllocationAlgorithmTest {
         retiredReason = null
     )
 }
-

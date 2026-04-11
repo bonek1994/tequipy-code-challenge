@@ -72,4 +72,3 @@ class AllocationAlgorithm {
         return brandScore + conditionScore
     }
 }
-
