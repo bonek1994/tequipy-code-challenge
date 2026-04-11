@@ -76,12 +76,9 @@ Equipment contains:
 
 Allocation requests contain:
 - `id`
-- `employeeId`
 - `policy`
 - `state`
 - `allocatedEquipmentIds`
-
-`employeeId` is stored as a UUID on the allocation request. There is currently no separate employee aggregate or employee API.
 
 #### Allocation states
 - `PENDING`
@@ -153,7 +150,6 @@ The actual HTTP API exposed by the application is:
 
 ```json
 {
-  "employeeId": "11111111-1111-1111-1111-111111111111",
   "policy": [
 	{
 	  "type": "MAIN_COMPUTER",
@@ -272,4 +268,4 @@ kubectl apply -f k8s/
 
 - Treat tests as the primary behavioral contract
 - Prefer updating tests alongside domain logic changes
-- Be careful when refactoring allocation flow: processing is triggered both directly in `AllocationService` and via `AllocationEventHandler` after transaction commit
+- Be careful when refactoring allocation flow: processing is triggered by the RabbitMQ message listener after transaction commit; `AllocationProcessor` is idempotent and only acts on allocations in `PENDING` state, so duplicate message delivery is handled safely

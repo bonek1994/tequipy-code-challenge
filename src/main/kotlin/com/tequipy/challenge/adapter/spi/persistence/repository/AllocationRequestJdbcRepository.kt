@@ -16,7 +16,6 @@ class AllocationRequestJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
     private val allocationRowMapper = RowMapper<AllocationRequestEntity> { rs, _ ->
         AllocationRequestEntity(
             id = rs.getObject("id", UUID::class.java),
-            employeeId = rs.getObject("employee_id", UUID::class.java),
             state = AllocationState.valueOf(rs.getString("state")),
             policy = emptyList(),
             allocatedEquipmentIds = emptyList(),
@@ -37,13 +36,12 @@ class AllocationRequestJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
     fun save(entity: AllocationRequestEntity): AllocationRequestEntity {
         jdbcTemplate.update(
             """
-            INSERT INTO allocation_requests (id, employee_id, state, idempotency_key)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO allocation_requests (id, state, idempotency_key)
+            VALUES (?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
-                employee_id = EXCLUDED.employee_id,
                 state = EXCLUDED.state
             """.trimIndent(),
-            entity.id, entity.employeeId, entity.state.name, entity.idempotencyKey
+            entity.id, entity.state.name, entity.idempotencyKey
         )
 
         jdbcTemplate.update(
