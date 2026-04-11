@@ -2,7 +2,6 @@ package com.tequipy.challenge.adapter.api.messaging
 
 import com.tequipy.challenge.config.RabbitMQConfig
 import com.tequipy.challenge.domain.AllocationLockContentionException
-import com.tequipy.challenge.domain.model.AllocationRequest
 import com.tequipy.challenge.domain.service.AllocationProcessor
 import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.Assertions.assertNotNull
