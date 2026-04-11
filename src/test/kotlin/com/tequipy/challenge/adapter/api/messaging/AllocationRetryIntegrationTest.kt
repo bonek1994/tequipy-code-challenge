@@ -6,6 +6,7 @@ import com.tequipy.challenge.domain.service.AllocationProcessor
 import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.any
 import org.mockito.Mockito
 import org.springframework.amqp.core.AmqpTemplate
 import org.springframework.beans.factory.annotation.Autowired
@@ -58,7 +59,7 @@ class AllocationRetryIntegrationTest {
         // given: processor always throws lock contention
         val allocationId = UUID.randomUUID()
         Mockito.doThrow(AllocationLockContentionException(allocationId))
-            .`when`(allocationProcessor).processAllocation(anyNonNull())
+            .`when`(allocationProcessor).processAllocation(any())
 
         // when: send a typed AllocationMessage object directly to the allocation queue
         val message = AllocationMessage(id = allocationId, policy = emptyList())
@@ -73,11 +74,6 @@ class AllocationRetryIntegrationTest {
 
         // verify that the processor was invoked exactly MAX_RETRY_ATTEMPTS times
         Mockito.verify(allocationProcessor, Mockito.timeout(30_000).times(RabbitMQConfig.MAX_RETRY_ATTEMPTS))
-            .processAllocation(anyNonNull())
+            .processAllocation(any())
     }
-
-    /** Workaround: Mockito.any() returns null, which violates Kotlin's non-null contract for
-     *  inline call-site checks. The unchecked cast to the type parameter avoids the NPE. */
-    @Suppress("UNCHECKED_CAST")
-    private fun <T> anyNonNull(): T = Mockito.any<T>() as T
 }
