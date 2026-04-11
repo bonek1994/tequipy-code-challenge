@@ -14,7 +14,7 @@ data class EquipmentPolicyRequirementRequest(
     val type: EquipmentType,
 
     @field:Min(1)
-    @Schema(description = "Number of units required (minimum 1)", example = "1", defaultValue = "1")
+    @Schema(description = "Number of units required (minimum 1)", example = "1")
     val quantity: Int = 1,
 
     @field:DecimalMin("0.0")
