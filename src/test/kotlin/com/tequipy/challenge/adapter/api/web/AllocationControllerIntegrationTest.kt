@@ -82,7 +82,6 @@ class AllocationControllerIntegrationTest {
         val created = restTemplate.postForEntity(
             allocationUrl(),
             CreateAllocationRequest(
-                employeeId = UUID.randomUUID(),
                 policy = listOf(
                     EquipmentPolicyRequirementRequest(EquipmentType.MAIN_COMPUTER, quantity = 1, minimumConditionScore = 0.8, preferredBrand = "Apple"),
                     EquipmentPolicyRequirementRequest(EquipmentType.MONITOR, quantity = 1)
@@ -114,7 +113,6 @@ class AllocationControllerIntegrationTest {
         val created = restTemplate.postForEntity(
             allocationUrl(),
             CreateAllocationRequest(
-                employeeId = UUID.randomUUID(),
                 policy = listOf(
                     EquipmentPolicyRequirementRequest(EquipmentType.KEYBOARD, quantity = 1, minimumConditionScore = 0.99)
                 )

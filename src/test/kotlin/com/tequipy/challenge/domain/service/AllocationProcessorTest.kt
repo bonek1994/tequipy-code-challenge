@@ -171,7 +171,6 @@ class AllocationProcessorTest {
         allocatedEquipmentIds: List<UUID> = emptyList()
     ) = AllocationRequest(
         id = id,
-        employeeId = UUID.randomUUID(),
         policy = policy,
         state = state,
         allocatedEquipmentIds = allocatedEquipmentIds

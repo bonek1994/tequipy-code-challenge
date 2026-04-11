@@ -19,12 +19,10 @@ class AllocationMapper {
 
     fun toResponse(allocation: AllocationRequest, allocatedEquipments: List<EquipmentResponse>) = AllocationResponse(
         id = allocation.id,
-        employeeId = allocation.employeeId,
         state = allocation.state,
         policy = allocation.policy.map(::toResponseRequirement),
         allocatedEquipmentIds = allocation.allocatedEquipmentIds,
-        allocatedEquipments = allocatedEquipments,
-        idempotencyKey = allocation.idempotencyKey
+        allocatedEquipments = allocatedEquipments
     )
 
     private fun toResponseRequirement(requirement: EquipmentPolicyRequirement) = EquipmentPolicyRequirementRequest(

@@ -11,7 +11,6 @@ class AllocationRequestEntityMapper {
 
     fun toDomain(entity: AllocationRequestEntity): AllocationRequest = AllocationRequest(
         id = entity.id,
-        employeeId = entity.employeeId,
         state = entity.state,
         policy = entity.policy.map(::toDomainRequirement),
         allocatedEquipmentIds = entity.allocatedEquipmentIds,
@@ -20,7 +19,6 @@ class AllocationRequestEntityMapper {
 
     fun toEntity(domain: AllocationRequest): AllocationRequestEntity = AllocationRequestEntity(
         id = domain.id,
-        employeeId = domain.employeeId,
         state = domain.state,
         policy = domain.policy.map(::toEntityRequirement),
         allocatedEquipmentIds = domain.allocatedEquipmentIds,
