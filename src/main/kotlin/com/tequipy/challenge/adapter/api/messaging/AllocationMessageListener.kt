@@ -24,8 +24,7 @@ class AllocationMessageListener(
                     minimumConditionScore = req.minimumConditionScore,
                     preferredBrand = req.preferredBrand
                 )
-            },
-            allocatedEquipmentIds = emptyList()
+            }
         )
         allocationProcessor.processAllocation(allocation)
     }
