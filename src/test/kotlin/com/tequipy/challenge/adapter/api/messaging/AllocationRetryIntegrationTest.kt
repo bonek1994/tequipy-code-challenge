@@ -1,6 +1,5 @@
 package com.tequipy.challenge.adapter.api.messaging
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.tequipy.challenge.config.RabbitMQConfig
 import com.tequipy.challenge.domain.AllocationLockContentionException
 import com.tequipy.challenge.domain.model.AllocationRequest
@@ -33,9 +32,6 @@ class AllocationRetryIntegrationTest {
     @Autowired
     private lateinit var amqpTemplate: AmqpTemplate
 
-    @Autowired
-    private lateinit var objectMapper: ObjectMapper
-
     companion object {
         @Container
         val postgres: PostgreSQLContainer<*> = PostgreSQLContainer("postgres:15-alpine")
@@ -66,9 +62,9 @@ class AllocationRetryIntegrationTest {
         Mockito.doThrow(AllocationLockContentionException(allocationId))
             .`when`(allocationProcessor).processAllocation(any(AllocationRequest::class.java))
 
-        // when: send a full AllocationMessage JSON directly to the allocation queue
+        // when: send a typed AllocationMessage object directly to the allocation queue
         val message = AllocationMessage(id = allocationId, policy = emptyList())
-        amqpTemplate.convertAndSend(RabbitMQConfig.ALLOCATION_QUEUE, objectMapper.writeValueAsString(message))
+        amqpTemplate.convertAndSend(RabbitMQConfig.ALLOCATION_QUEUE, message)
 
         // then: message should appear in DLQ after retry exhaustion
         val dlqMessage = await()

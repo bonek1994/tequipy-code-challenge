@@ -1,6 +1,5 @@
 package com.tequipy.challenge.adapter.api.messaging
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.tequipy.challenge.config.RabbitMQConfig
 import com.tequipy.challenge.domain.model.AllocationRequest
 import com.tequipy.challenge.domain.model.AllocationState
@@ -11,16 +10,14 @@ import org.springframework.stereotype.Component
 
 @Component
 class AllocationMessageListener(
-    private val allocationProcessor: AllocationProcessor,
-    private val objectMapper: ObjectMapper
+    private val allocationProcessor: AllocationProcessor
 ) {
     @RabbitListener(queues = [RabbitMQConfig.ALLOCATION_QUEUE])
-    fun onAllocationCreated(message: String) {
-        val allocationMessage = objectMapper.readValue(message, AllocationMessage::class.java)
+    fun onAllocationCreated(message: AllocationMessage) {
         val allocation = AllocationRequest(
-            id = allocationMessage.id,
+            id = message.id,
             state = AllocationState.PENDING,
-            policy = allocationMessage.policy.map { req ->
+            policy = message.policy.map { req ->
                 EquipmentPolicyRequirement(
                     type = req.type,
                     quantity = req.quantity,

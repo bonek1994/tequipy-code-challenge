@@ -11,6 +11,7 @@ import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFacto
 import org.springframework.amqp.rabbit.connection.ConnectionFactory
 import org.springframework.amqp.rabbit.core.RabbitTemplate
 import org.springframework.amqp.rabbit.retry.RepublishMessageRecoverer
+import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.retry.support.RetryTemplate
@@ -43,6 +44,9 @@ class RabbitMQConfig {
         BindingBuilder.bind(allocationDlq).to(allocationDlx).with(ALLOCATION_DLQ)
 
     @Bean
+    fun jsonMessageConverter(): Jackson2JsonMessageConverter = Jackson2JsonMessageConverter()
+
+    @Bean
     fun republishMessageRecoverer(rabbitTemplate: RabbitTemplate): RepublishMessageRecoverer =
         RepublishMessageRecoverer(rabbitTemplate, ALLOCATION_DLX, ALLOCATION_DLQ)
 
@@ -68,11 +72,13 @@ class RabbitMQConfig {
     @Bean
     fun rabbitListenerContainerFactory(
         connectionFactory: ConnectionFactory,
-        allocationRetryInterceptor: RetryOperationsInterceptor
+        allocationRetryInterceptor: RetryOperationsInterceptor,
+        jsonMessageConverter: Jackson2JsonMessageConverter
     ): SimpleRabbitListenerContainerFactory {
         val factory = SimpleRabbitListenerContainerFactory()
         factory.setConnectionFactory(connectionFactory)
         factory.setAdviceChain(allocationRetryInterceptor)
+        factory.setMessageConverter(jsonMessageConverter)
         return factory
     }
 }

@@ -1,6 +1,5 @@
 package com.tequipy.challenge.adapter.spi.messaging
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.tequipy.challenge.adapter.api.messaging.AllocationMessage
 import com.tequipy.challenge.config.RabbitMQConfig
 import com.tequipy.challenge.domain.model.AllocationRequest
@@ -12,8 +11,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 @Component
 class RabbitMQAllocationEventPublisher(
-    private val rabbitTemplate: RabbitTemplate,
-    private val objectMapper: ObjectMapper
+    private val rabbitTemplate: RabbitTemplate
 ) : AllocationEventPublisher {
 
     override fun publishAllocationCreated(allocation: AllocationRequest) {
@@ -30,7 +28,7 @@ class RabbitMQAllocationEventPublisher(
                         )
                     }
                 )
-                rabbitTemplate.convertAndSend(RabbitMQConfig.ALLOCATION_QUEUE, objectMapper.writeValueAsString(message))
+                rabbitTemplate.convertAndSend(RabbitMQConfig.ALLOCATION_QUEUE, message)
             }
         })
     }

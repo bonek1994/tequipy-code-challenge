@@ -1,6 +1,5 @@
 package com.tequipy.challenge.adapter.api.messaging
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.tequipy.challenge.domain.model.AllocationRequest
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.EquipmentType
@@ -13,11 +12,10 @@ import java.util.UUID
 class AllocationMessageListenerTest {
 
     private val allocationProcessor: AllocationProcessor = mockk(relaxed = true)
-    private val objectMapper = ObjectMapper().apply { findAndRegisterModules() }
-    private val listener = AllocationMessageListener(allocationProcessor, objectMapper)
+    private val listener = AllocationMessageListener(allocationProcessor)
 
     @Test
-    fun `onAllocationCreated should invoke processor with deserialized allocation`() {
+    fun `onAllocationCreated should invoke processor with allocation built from message`() {
         // given
         val allocationId = UUID.randomUUID()
         val message = AllocationMessage(
@@ -28,7 +26,7 @@ class AllocationMessageListenerTest {
         )
 
         // when
-        listener.onAllocationCreated(objectMapper.writeValueAsString(message))
+        listener.onAllocationCreated(message)
 
         // then
         verify {
