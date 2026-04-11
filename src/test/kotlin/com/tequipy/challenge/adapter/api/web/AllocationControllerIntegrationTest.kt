@@ -90,7 +90,7 @@ class AllocationControllerIntegrationTest {
             AllocationResponse::class.java
         )
 
-        assertEquals(HttpStatus.CREATED, created.statusCode)
+        assertEquals(HttpStatus.ACCEPTED, created.statusCode)
         assertNotNull(created.body)
 
         val allocated = waitForAllocation(created.body!!.id, AllocationState.ALLOCATED)
@@ -120,7 +120,7 @@ class AllocationControllerIntegrationTest {
             AllocationResponse::class.java
         )
 
-        assertEquals(HttpStatus.CREATED, created.statusCode)
+        assertEquals(HttpStatus.ACCEPTED, created.statusCode)
         val failed = waitForAllocation(created.body!!.id, AllocationState.FAILED)
         assertEquals(0, failed.allocatedEquipmentIds.size)
     }
