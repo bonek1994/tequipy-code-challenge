@@ -47,7 +47,6 @@ class EquipmentController(
         return ResponseEntity.status(HttpStatus.CREATED).body(equipmentMapper.toResponse(equipment))
     }
 
-
     @Operation(summary = "List equipment", description = "Returns all equipment, optionally filtered by state.")
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "List of equipment",

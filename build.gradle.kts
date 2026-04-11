@@ -47,7 +47,7 @@ tasks.withType<KotlinCompile> {
     }
 }
 
-tasks.withType<Test> {
+tasks.named<Test>("test") {
     useJUnitPlatform {
         excludeTags("performance")
     }

@@ -9,4 +9,3 @@ data class RetireEquipmentRequest(
     @Schema(description = "Reason for retiring the equipment", example = "Hardware failure — screen cracked", required = true)
     val reason: String
 )
-

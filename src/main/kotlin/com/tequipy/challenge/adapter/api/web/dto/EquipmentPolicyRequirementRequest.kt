@@ -25,4 +25,3 @@ data class EquipmentPolicyRequirementRequest(
     @Schema(description = "Preferred equipment brand (soft preference, not mandatory)", example = "Apple", nullable = true)
     val preferredBrand: String? = null
 )
-

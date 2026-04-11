@@ -7,7 +7,6 @@ import com.tequipy.challenge.domain.model.EquipmentType
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.client.TestRestTemplate
@@ -59,7 +58,6 @@ import kotlin.system.measureTimeMillis
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @Tag("performance")
 class PerformanceTest {
 
@@ -230,7 +228,7 @@ class PerformanceTest {
                             AllocationResponse::class.java
                         )
                         responseTimes.add(System.currentTimeMillis() - start)
-                        if (response.statusCode == HttpStatus.CREATED) {
+                        if (response.statusCode == HttpStatus.ACCEPTED) {
                             httpSuccessCount.incrementAndGet()
                         } else {
                             httpFailureCount.incrementAndGet()
@@ -261,7 +259,7 @@ class PerformanceTest {
             appendLine("| Apple eligible (score ≥ $MIN_CONDITION) | $appleEligible |")
             appendLine("| Dell eligible (score ≥ $MIN_CONDITION) | $dellEligible |")
             appendLine("| Total requests submitted | $ALLOCATION_REQUESTS |")
-            appendLine("| HTTP 201 (success) | ${httpSuccessCount.get()} |")
+            appendLine("| HTTP 202 (success) | ${httpSuccessCount.get()} |")
             appendLine("| HTTP errors | ${httpFailureCount.get()} |")
             appendLine("| Total wall-clock time | ${testDurationMs} ms |")
             appendLine("| Throughput | ${"%.1f".format(throughput)} req/s |")
@@ -280,7 +278,7 @@ class PerformanceTest {
         assertEquals(
             ALLOCATION_REQUESTS,
             httpSuccessCount.get(),
-            "All $ALLOCATION_REQUESTS allocation submissions must return HTTP 201. " +
+            "All $ALLOCATION_REQUESTS allocation submissions must return HTTP 202. " +
                 "Got ${httpSuccessCount.get()} successes and ${httpFailureCount.get()} HTTP errors."
         )
     }

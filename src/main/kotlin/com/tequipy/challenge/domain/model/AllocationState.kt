@@ -7,4 +7,3 @@ enum class AllocationState {
     CONFIRMED,
     CANCELLED
 }
-

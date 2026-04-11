@@ -106,4 +106,3 @@ class AllocationController(
         return allocationMapper.toResponse(allocation, equipments)
     }
 }
-

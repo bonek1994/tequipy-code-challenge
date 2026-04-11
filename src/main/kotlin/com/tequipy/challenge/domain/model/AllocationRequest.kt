@@ -9,4 +9,3 @@ data class AllocationRequest(
     val allocatedEquipmentIds: List<UUID> = emptyList(),
     val idempotencyKey: UUID? = null
 )
-

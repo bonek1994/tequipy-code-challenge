@@ -8,4 +8,3 @@ data class EquipmentPolicyRequirementEmbeddable(
     val minimumConditionScore: Double?,
     val preferredBrand: String?
 )
-

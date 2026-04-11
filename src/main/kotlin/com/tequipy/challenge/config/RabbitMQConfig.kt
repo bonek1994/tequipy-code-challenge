@@ -17,6 +17,7 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.retry.support.RetryTemplate
 import org.springframework.retry.interceptor.RetryOperationsInterceptor
 import org.springframework.retry.policy.SimpleRetryPolicy
+
 @Configuration
 class RabbitMQConfig {
 

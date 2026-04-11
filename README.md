@@ -12,17 +12,16 @@ The application currently supports:
 - creating allocation requests based on policy requirements
 - confirming or cancelling allocations
 
-> Note: older project descriptions may mention employee CRUD or `/api/...` routes. The current implementation does **not** expose employee endpoints and does **not** use an `/api` prefix.
-
 ## Technology Stack
 
 - **Language**: Kotlin 1.9.22
 - **Framework**: Spring Boot 3.2.3
 - **Java**: 17
-- **Database**: PostgreSQL with Spring Data JPA / Hibernate
+- **Database**: PostgreSQL with Spring JDBC (JdbcTemplate); schema managed by Flyway
+- **Messaging**: RabbitMQ (async allocation processing via AMQP)
 - **Build Tool**: Gradle 8.6
 - **Validation**: Jakarta Bean Validation
-- **Testing**: JUnit 5, MockK, Testcontainers
+- **Testing**: JUnit 5, MockK, Testcontainers (requires Docker)
 - **Containerization / Deployment**: Docker, Kubernetes manifests in `k8s/`
 
 ## Architecture
@@ -36,14 +35,16 @@ src/main/kotlin/com/tequipy/challenge/
 │   ├── model/               # Core domain models and enums
 │   ├── port/
 │   │   ├── in/              # Use case interfaces
-│   │   └── out/             # Repository ports
+│   │   └── out/             # Repository and event-publisher ports
 │   └── service/             # Business logic and allocation workflow
 ├── adapter/
-│   ├── in/
-│   │   └── web/             # REST controllers, DTOs, web mappers, exception handler
-│   └── out/
-│       └── persistence/     # JPA entities, repositories, persistence adapters, entity mappers
-└── config/                  # Spring configuration
+│   ├── api/
+│   │   ├── web/             # REST controllers, DTOs, web mappers, exception handler
+│   │   └── messaging/       # RabbitMQ message listener and message DTOs
+│   └── spi/
+│       ├── persistence/     # JDBC repositories, persistence adapters, entity mappers
+│       └── messaging/       # RabbitMQ event publisher
+└── config/                  # Spring configuration (RabbitMQ, OpenAPI, Async)
 ```
 
 ## Domain Model Overview
@@ -167,14 +168,14 @@ The actual HTTP API exposed by the application is:
 
 ## Allocation Processing
 
-Allocation creation triggers processing through the domain layer. The processor:
+Allocation creation publishes a message to the RabbitMQ `allocation.queue`. The listener:
 
-1. loads the pending allocation
+1. receives the pending allocation message
 2. selects eligible `AVAILABLE` equipment using `AllocationAlgorithm`
 3. marks matching equipment as `RESERVED`
 4. changes the allocation state to `ALLOCATED`
 
-If no valid combination exists, the allocation is marked as `FAILED`.
+If no valid combination exists, the allocation is marked as `FAILED`. Lock contention during concurrent processing triggers automatic retries (up to 12 attempts); messages that exhaust all retries are moved to the dead-letter queue (`allocation.dlq`).
 
 The algorithm:
 - applies hard constraints for type and minimum condition score
@@ -198,6 +199,7 @@ The algorithm:
 ### Prerequisites
 - JDK 17+
 - PostgreSQL running on `localhost:5432` with database `tequipy`
+- RabbitMQ running on `localhost:5672`
 
 ### Environment Variables
 
@@ -208,15 +210,17 @@ The algorithm:
 | `DB_NAME` | `tequipy` | Database name |
 | `DB_USERNAME` | `tequipy` | Database username |
 | `DB_PASSWORD` | `tequipy` | Database password |
+| `RABBITMQ_HOST` | `localhost` | RabbitMQ host |
+| `RABBITMQ_PORT` | `5672` | RabbitMQ AMQP port |
+| `RABBITMQ_USERNAME` | `guest` | RabbitMQ username |
+| `RABBITMQ_PASSWORD` | `guest` | RabbitMQ password |
 | `APP_PORT` | `8080` | Application port |
 
-### PowerShell commands
+### Build and run
 
-```powershell
-Set-Location "C:\Users\48502\IdeaProjects\tequipy-code-challenge"
-$env:JAVA_HOME = "C:\Program Files\Java\jdk-17"
-.\gradlew.bat build
-.\gradlew.bat bootRun
+```bash
+./gradlew build
+./gradlew bootRun
 ```
 
 ## Testing
@@ -228,26 +232,20 @@ The project includes:
 
 ### Useful commands
 
-```powershell
-Set-Location "C:\Users\48502\IdeaProjects\tequipy-code-challenge"
-$env:JAVA_HOME = "C:\Program Files\Java\jdk-17"
-.\gradlew.bat cleanTest test --no-daemon
+```bash
+./gradlew cleanTest test
 ```
 
 Run only domain/service tests:
 
-```powershell
-Set-Location "C:\Users\48502\IdeaProjects\tequipy-code-challenge"
-$env:JAVA_HOME = "C:\Program Files\Java\jdk-17"
-.\gradlew.bat cleanTest test --tests "com.tequipy.challenge.domain.service.*" --no-daemon
+```bash
+./gradlew cleanTest test --tests "com.tequipy.challenge.domain.service.*"
 ```
 
 Run only controller/integration tests:
 
-```powershell
-Set-Location "C:\Users\48502\IdeaProjects\tequipy-code-challenge"
-$env:JAVA_HOME = "C:\Program Files\Java\jdk-17"
-.\gradlew.bat test --tests "com.tequipy.challenge.adapter.in.web.*" --no-daemon
+```bash
+./gradlew test --tests "com.tequipy.challenge.adapter.api.web.*"
 ```
 
 > Integration tests require Docker/Testcontainers support.
@@ -260,7 +258,7 @@ The repository includes:
 
 Apply manifests with:
 
-```powershell
+```bash
 kubectl apply -f k8s/
 ```
 
