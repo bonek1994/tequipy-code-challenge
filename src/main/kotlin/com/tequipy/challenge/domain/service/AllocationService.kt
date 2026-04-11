@@ -45,7 +45,7 @@ class AllocationService(
             )
         )
 
-        allocationEventPublisher.publishAllocationCreated(allocation.id)
+        allocationEventPublisher.publishAllocationCreated(allocation)
         return allocation
     }
 

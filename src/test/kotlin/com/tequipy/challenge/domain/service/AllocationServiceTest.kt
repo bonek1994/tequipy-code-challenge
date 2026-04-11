@@ -47,7 +47,7 @@ class AllocationServiceTest {
         // then
         assertEquals(AllocationState.PENDING, captured.captured.state)
         assertEquals(saved, result)
-        verify { allocationEventPublisher.publishAllocationCreated(saved.id) }
+        verify { allocationEventPublisher.publishAllocationCreated(saved) }
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.tequipy.challenge.domain.service
 
 import com.tequipy.challenge.domain.AllocationLockContentionException
+import com.tequipy.challenge.domain.model.AllocationRequest
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
@@ -19,12 +20,17 @@ class AllocationProcessor(
     private val allocationAlgorithm = AllocationAlgorithm()
 
     @Transactional
-    fun processAllocation(allocationId: UUID) {
-        val allocation = allocationRepository.findById(allocationId) ?: return
+    fun processAllocation(allocation: AllocationRequest) {
         if (allocation.state != AllocationState.PENDING) return
+
+        // Idempotency: verify the allocation still exists and is PENDING in DB
+        // (guards against duplicate message delivery)
+        val dbAllocation = allocationRepository.findById(allocation.id) ?: return
+        if (dbAllocation.state != AllocationState.PENDING) return
 
         // Compute the global minimum condition score and required equipment types from the policy.
         // Both are used as upfront DB-level filters to exclude ineligible equipment early.
+        // Policy data comes from the message, not the DB, keeping the two sides independent.
         val globalMinScore = allocation.policy.mapNotNull { it.minimumConditionScore }.minOrNull() ?: 0.0
         val requiredTypes = allocation.policy.map { it.type }.toSet()
 
@@ -48,7 +54,7 @@ class AllocationProcessor(
         // If any candidates are locked by concurrent transactions (partial or full contention),
         // throw to trigger retry so we can attempt again with all candidates available.
         if (lockedCandidates.size < candidateIds.size) {
-            throw AllocationLockContentionException(allocationId)
+            throw AllocationLockContentionException(allocation.id)
         }
 
         // Phase 3: run the scoring algorithm on the locked candidates.
