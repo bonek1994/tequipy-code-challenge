@@ -45,5 +45,16 @@ tasks.withType<KotlinCompile> {
 }
 
 tasks.withType<Test> {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags("performance")
+    }
+}
+
+tasks.register<Test>("performanceTest") {
+    description = "Runs performance tests tagged with @Tag(\"performance\")"
+    group = "verification"
+    useJUnitPlatform {
+        includeTags("performance")
+    }
+    shouldRunAfter("test")
 }

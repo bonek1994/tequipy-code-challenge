@@ -21,6 +21,7 @@ import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.containers.RabbitMQContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
+import java.io.File
 import java.sql.Date
 import java.sql.PreparedStatement
 import java.time.LocalDate
@@ -44,7 +45,8 @@ import kotlin.system.measureTimeMillis
  *       - 1 × MAIN_COMPUTER (preferredBrand = "Apple",  minimumConditionScore = 0.7)
  *       - 1 × MAIN_COMPUTER (preferredBrand = "Dell",   minimumConditionScore = 0.7)
  *  3. Asserts that every HTTP submission returns HTTP 201 (CREATED).
- *  4. Prints a performance summary: total duration, throughput, and P95 / P99 response times.
+ *  4. Prints a performance summary: total duration, throughput, and P50 / P99 response times.
+ *  5. Writes a Markdown performance report to build/performance-report.md for CI consumption.
  *
  * Kubernetes note:
  *   The k8s/deployment.yaml is configured with replicas: 3 so that three application instances
@@ -246,25 +248,34 @@ class PerformanceTest {
 
         val sorted = responseTimes.sorted()
         val avg = if (sorted.isNotEmpty()) sorted.average() else 0.0
-        val p95 = if (sorted.isNotEmpty()) sorted[(sorted.size * 0.95).toInt().coerceAtMost(sorted.size - 1)] else 0L
+        val p50 = if (sorted.isNotEmpty()) sorted[(sorted.size * 0.50).toInt().coerceAtMost(sorted.size - 1)] else 0L
         val p99 = if (sorted.isNotEmpty()) sorted[(sorted.size * 0.99).toInt().coerceAtMost(sorted.size - 1)] else 0L
         val throughput = responseTimes.size * 1_000.0 / testDurationMs
 
-        println(
-            """
-            
-=== Performance Test Results ===
-Total requests submitted : $ALLOCATION_REQUESTS
-HTTP 201 (success)       : ${httpSuccessCount.get()}
-HTTP errors              : ${httpFailureCount.get()}
-Total wall-clock time    : ${testDurationMs} ms
-Throughput               : ${"%.1f".format(throughput)} req/s
-Avg response time        : ${"%.1f".format(avg)} ms
-P95 response time        : $p95 ms
-P99 response time        : $p99 ms
-=================================
-            """.trimIndent()
-        )
+        val report = buildString {
+            appendLine("## 🚀 Performance Test Report")
+            appendLine()
+            appendLine("| Metric | Value |")
+            appendLine("|--------|-------|")
+            appendLine("| Equipment seeded | ${rows.size} (${APPLE_COUNT} Apple + ${DELL_COUNT} Dell) |")
+            appendLine("| Apple eligible (score ≥ $MIN_CONDITION) | $appleEligible |")
+            appendLine("| Dell eligible (score ≥ $MIN_CONDITION) | $dellEligible |")
+            appendLine("| Total requests submitted | $ALLOCATION_REQUESTS |")
+            appendLine("| HTTP 201 (success) | ${httpSuccessCount.get()} |")
+            appendLine("| HTTP errors | ${httpFailureCount.get()} |")
+            appendLine("| Total wall-clock time | ${testDurationMs} ms |")
+            appendLine("| Throughput | ${"%.1f".format(throughput)} req/s |")
+            appendLine("| Avg response time | ${"%.1f".format(avg)} ms |")
+            appendLine("| P50 response time | $p50 ms |")
+            appendLine("| P99 response time | $p99 ms |")
+        }
+
+        println("\n=== Performance Test Results ===")
+        println(report)
+
+        // Write Markdown report to build/ so the CI workflow can post it as a PR comment.
+        File("build").mkdirs()
+        File("build/performance-report.md").writeText(report)
 
         assertEquals(
             ALLOCATION_REQUESTS,
