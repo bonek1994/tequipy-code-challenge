@@ -77,11 +77,13 @@ class EquipmentJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
         return jdbcTemplate.query("SELECT * FROM equipments WHERE state = ?", rowMapper, state.name)
     }
 
-    fun findAvailableWithMinConditionScore(minScore: Double): List<EquipmentEntity> {
+    fun findAvailableWithMinConditionScore(types: Set<EquipmentType>, minScore: Double): List<EquipmentEntity> {
+        if (types.isEmpty()) return emptyList()
+        val placeholders = types.joinToString(",") { "?" }
         return jdbcTemplate.query(
-            "SELECT * FROM equipments WHERE state = ? AND condition_score >= ?",
+            "SELECT * FROM equipments WHERE state = ? AND type IN ($placeholders) AND condition_score >= ?",
             rowMapper,
-            EquipmentState.AVAILABLE.name, minScore
+            EquipmentState.AVAILABLE.name, *types.map { it.name }.toTypedArray(), minScore
         )
     }
 

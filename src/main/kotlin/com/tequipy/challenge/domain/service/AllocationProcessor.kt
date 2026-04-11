@@ -23,14 +23,15 @@ class AllocationProcessor(
         val allocation = allocationRepository.findById(allocationId) ?: return
         if (allocation.state != AllocationState.PENDING) return
 
-        // Compute the global minimum condition score across all policy requirements.
-        // This is used as an upfront DB-level filter to exclude ineligible equipment early.
+        // Compute the global minimum condition score and required equipment types from the policy.
+        // Both are used as upfront DB-level filters to exclude ineligible equipment early.
         val globalMinScore = allocation.policy.mapNotNull { it.minimumConditionScore }.minOrNull() ?: 0.0
+        val requiredTypes = allocation.policy.map { it.type }.toSet()
 
-        // Phase 1: find all AVAILABLE equipment that meets the global minimum condition score
-        // and determine which ones are candidates for at least one required slot
-        // (hard constraints only: type + per-requirement minimumConditionScore).
-        val available = equipmentRepository.findAvailableWithMinConditionScore(globalMinScore)
+        // Phase 1: find all AVAILABLE equipment that matches a required type and meets the
+        // global minimum condition score, then determine which ones are candidates for at
+        // least one required slot (hard constraints: type + per-requirement minimumConditionScore).
+        val available = equipmentRepository.findAvailableWithMinConditionScore(requiredTypes, globalMinScore)
         val candidateIds = findCandidateIds(allocation.policy, available)
 
         if (candidateIds.isEmpty()) {
