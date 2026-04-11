@@ -1,5 +1,6 @@
 package com.tequipy.challenge.domain.service
 
+import com.tequipy.challenge.domain.AllocationLockContentionException
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
@@ -36,6 +37,12 @@ class AllocationProcessor(
         // Rows already locked by concurrent transactions are skipped so we only
         // work with equipment that is truly available to this request.
         val lockedCandidates = equipmentRepository.findByIdsForUpdate(candidateIds)
+
+        // If any candidates are locked by concurrent transactions (partial or full contention),
+        // throw to trigger retry so we can attempt again with all candidates available.
+        if (lockedCandidates.size < candidateIds.size) {
+            throw AllocationLockContentionException(allocationId)
+        }
 
         // Phase 3: run the scoring algorithm on the locked candidates.
         val selected = allocationAlgorithm.allocate(

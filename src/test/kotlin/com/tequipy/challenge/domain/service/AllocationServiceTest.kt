@@ -3,13 +3,13 @@ package com.tequipy.challenge.domain.service
 import com.tequipy.challenge.domain.BadRequestException
 import com.tequipy.challenge.domain.ConflictException
 import com.tequipy.challenge.domain.NotFoundException
-import com.tequipy.challenge.domain.event.AllocationCreatedEvent
 import com.tequipy.challenge.domain.model.AllocationRequest
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.model.EquipmentType
+import com.tequipy.challenge.domain.port.out.AllocationEventPublisher
 import com.tequipy.challenge.domain.port.out.AllocationRepository
 import com.tequipy.challenge.domain.port.out.EquipmentRepository
 import io.mockk.every
@@ -19,24 +19,21 @@ import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
-import org.springframework.context.ApplicationEventPublisher
 import java.time.LocalDate
 import java.util.UUID
 
 class AllocationServiceTest {
     private val allocationRepository: AllocationRepository = mockk()
     private val equipmentRepository: EquipmentRepository = mockk()
-    private val eventPublisher: ApplicationEventPublisher = mockk(relaxed = true)
-    private val allocationProcessor: AllocationProcessor = mockk(relaxed = true)
+    private val allocationEventPublisher: AllocationEventPublisher = mockk(relaxed = true)
 
-    private val service = AllocationService(allocationRepository, equipmentRepository, eventPublisher, allocationProcessor)
+    private val service = AllocationService(allocationRepository, equipmentRepository, allocationEventPublisher)
 
     @Test
     fun `createAllocation should persist pending request and publish event`() {
         // given
         val employeeId = UUID.randomUUID()
         val captured = slot<AllocationRequest>()
-        val eventSlot = slot<Any>()
         val saved = AllocationRequest(
             id = UUID.randomUUID(),
             employeeId = employeeId,
@@ -45,8 +42,6 @@ class AllocationServiceTest {
             allocatedEquipmentIds = emptyList()
         )
         every { allocationRepository.save(capture(captured)) } returns saved
-        every { allocationRepository.findById(saved.id) } returns saved
-        every { eventPublisher.publishEvent(capture(eventSlot)) } returns Unit
 
         // when
         val result = service.createAllocation(employeeId, saved.policy)
@@ -54,7 +49,7 @@ class AllocationServiceTest {
         // then
         assertEquals(AllocationState.PENDING, captured.captured.state)
         assertEquals(saved, result)
-        assertEquals(saved.id, (eventSlot.captured as AllocationCreatedEvent).allocationId)
+        verify { allocationEventPublisher.publishAllocationCreated(saved.id) }
     }
 
     @Test

@@ -11,6 +11,7 @@ import com.tequipy.challenge.domain.port.out.EquipmentRepository
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.time.LocalDate
 import java.util.UUID
@@ -85,7 +86,7 @@ class AllocationProcessorTest {
     }
 
     @Test
-    fun `processAllocation should fail when all candidates are locked by concurrent requests`() {
+    fun `processAllocation should throw AllocationLockContentionException when all candidates are locked by concurrent requests`() {
         // given
         val allocationId = UUID.randomUUID()
         val candidateEquipment = equipment(type = EquipmentType.MONITOR, conditionScore = 0.92)
@@ -97,20 +98,37 @@ class AllocationProcessorTest {
         every { allocationRepository.findById(allocationId) } returns pending
         every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(candidateEquipment)
         every { equipmentRepository.findByIdsForUpdate(listOf(candidateEquipment.id)) } returns emptyList()
-        every { allocationRepository.save(any()) } answers { firstArg() }
 
-        // when
-        processor.processAllocation(allocationId)
-
-        // then
-        verify(exactly = 0) { equipmentRepository.saveAll(any()) }
-        verify {
-            allocationRepository.save(match {
-                it.id == allocationId &&
-                    it.state == AllocationState.FAILED &&
-                    it.allocatedEquipmentIds.isEmpty()
-            })
+        // when / then
+        assertThrows(com.tequipy.challenge.domain.AllocationLockContentionException::class.java) {
+            processor.processAllocation(allocationId)
         }
+        verify(exactly = 0) { equipmentRepository.saveAll(any()) }
+        verify(exactly = 0) { allocationRepository.save(any()) }
+    }
+
+    @Test
+    fun `processAllocation should throw AllocationLockContentionException when some candidates are locked by concurrent requests`() {
+        // given
+        val allocationId = UUID.randomUUID()
+        val candidate1 = equipment(type = EquipmentType.MONITOR, conditionScore = 0.92)
+        val candidate2 = equipment(type = EquipmentType.MONITOR, conditionScore = 0.88)
+        val pending = allocation(
+            id = allocationId,
+            state = AllocationState.PENDING,
+            policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 2, minimumConditionScore = 0.8))
+        )
+        every { allocationRepository.findById(allocationId) } returns pending
+        every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(candidate1, candidate2)
+        // Only one of the two candidates could be locked — partial contention
+        every { equipmentRepository.findByIdsForUpdate(any()) } returns listOf(candidate1)
+
+        // when / then
+        assertThrows(com.tequipy.challenge.domain.AllocationLockContentionException::class.java) {
+            processor.processAllocation(allocationId)
+        }
+        verify(exactly = 0) { equipmentRepository.saveAll(any()) }
+        verify(exactly = 0) { allocationRepository.save(any()) }
     }
 
     @Test
