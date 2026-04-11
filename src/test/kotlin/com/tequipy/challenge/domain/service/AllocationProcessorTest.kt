@@ -8,7 +8,10 @@ import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.model.EquipmentType
 import com.tequipy.challenge.domain.port.out.AllocationRepository
 import com.tequipy.challenge.domain.port.out.EquipmentRepository
-import io.mockk.*
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.time.LocalDate
 import java.util.UUID
@@ -23,13 +26,14 @@ class AllocationProcessorTest {
     fun `processAllocation should do nothing when allocation is missing`() {
         // given
         val allocationId = UUID.randomUUID()
+        val pending = allocation(id = allocationId, state = AllocationState.PENDING, policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)))
         every { allocationRepository.findById(allocationId) } returns null
 
         // when
-        processor.processAllocation(allocationId)
+        processor.processAllocation(pending)
 
         // then
-        verify(exactly = 0) { equipmentRepository.findByState(any()) }
+        verify(exactly = 0) { equipmentRepository.findAvailableWithMinConditionScore(any(), any()) }
         verify(exactly = 0) { equipmentRepository.saveAll(any()) }
         verify(exactly = 0) { allocationRepository.save(any()) }
     }
@@ -38,6 +42,11 @@ class AllocationProcessorTest {
     fun `processAllocation should ignore allocation that is not pending`() {
         // given
         val allocationId = UUID.randomUUID()
+        val messageAllocation = allocation(
+            id = allocationId,
+            state = AllocationState.PENDING,
+            policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1))
+        )
         every { allocationRepository.findById(allocationId) } returns allocation(
             id = allocationId,
             state = AllocationState.ALLOCATED,
@@ -45,10 +54,10 @@ class AllocationProcessorTest {
         )
 
         // when
-        processor.processAllocation(allocationId)
+        processor.processAllocation(messageAllocation)
 
         // then
-        verify(exactly = 0) { equipmentRepository.findByState(any()) }
+        verify(exactly = 0) { equipmentRepository.findAvailableWithMinConditionScore(any(), any()) }
         verify(exactly = 0) { equipmentRepository.saveAll(any()) }
         verify(exactly = 0) { allocationRepository.save(any()) }
     }
@@ -62,17 +71,16 @@ class AllocationProcessorTest {
             state = AllocationState.PENDING,
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, minimumConditionScore = 0.9))
         )
-        val unavailableCandidate = equipment(type = EquipmentType.MONITOR, conditionScore = 0.5)
         every { allocationRepository.findById(allocationId) } returns pending
-        every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(unavailableCandidate)
+        every { equipmentRepository.findAvailableWithMinConditionScore(setOf(EquipmentType.MONITOR), 0.9) } returns emptyList()
         every { allocationRepository.save(any()) } answers { firstArg() }
 
         // when
-        processor.processAllocation(allocationId)
+        processor.processAllocation(pending)
 
         // then
         verify(exactly = 0) { equipmentRepository.saveAll(any()) }
-        verify(exactly = 0) { equipmentRepository.findByIdsForUpdate(any()) }
+        verify(exactly = 0) { equipmentRepository.findByIdsForUpdate(any(), any()) }
         verify {
             allocationRepository.save(match {
                 it.id == allocationId &&
@@ -83,7 +91,7 @@ class AllocationProcessorTest {
     }
 
     @Test
-    fun `processAllocation should retry and fail after max retries when all candidates are persistently locked`() {
+    fun `processAllocation should throw AllocationLockContentionException when all candidates are locked by concurrent requests`() {
         // given
         val allocationId = UUID.randomUUID()
         val candidateEquipment = equipment(type = EquipmentType.MONITOR, conditionScore = 0.92)
@@ -93,99 +101,39 @@ class AllocationProcessorTest {
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, minimumConditionScore = 0.8))
         )
         every { allocationRepository.findById(allocationId) } returns pending
-        // Candidate is visible as AVAILABLE on every attempt but always skip-locked
-        every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(candidateEquipment)
-        every { equipmentRepository.findByIdsForUpdate(listOf(candidateEquipment.id)) } returns emptyList()
-        every { allocationRepository.save(any()) } answers { firstArg() }
+        every { equipmentRepository.findAvailableWithMinConditionScore(setOf(EquipmentType.MONITOR), 0.8) } returns listOf(candidateEquipment)
+        every { equipmentRepository.findByIdsForUpdate(listOf(candidateEquipment.id), 0.8) } returns emptyList()
 
-        // when
-        processor.processAllocation(allocationId)
-
-        // then
-        verify(exactly = 0) { equipmentRepository.saveAll(any()) }
-        // Phase 1+2 should have been attempted MAX_RETRIES times
-        verify(exactly = AllocationProcessor.MAX_RETRIES) { equipmentRepository.findByState(EquipmentState.AVAILABLE) }
-        verify(exactly = AllocationProcessor.MAX_RETRIES) { equipmentRepository.findByIdsForUpdate(any()) }
-        // Allocation is eventually marked FAILED after all retries are exhausted
-        verify(exactly = 1) {
-            allocationRepository.save(match {
-                it.id == allocationId &&
-                    it.state == AllocationState.FAILED &&
-                    it.allocatedEquipmentIds.isEmpty()
-            })
+        // when / then
+        assertThrows(com.tequipy.challenge.domain.AllocationLockContentionException::class.java) {
+            processor.processAllocation(pending)
         }
+        verify(exactly = 0) { equipmentRepository.saveAll(any()) }
+        verify(exactly = 0) { allocationRepository.save(any()) }
     }
 
     @Test
-    fun `processAllocation should succeed on retry when contention resolves`() {
+    fun `processAllocation should throw AllocationLockContentionException when some candidates are locked by concurrent requests`() {
         // given
         val allocationId = UUID.randomUUID()
-        val candidateEquipment = equipment(type = EquipmentType.MONITOR, conditionScore = 0.92)
+        val candidate1 = equipment(type = EquipmentType.MONITOR, conditionScore = 0.92)
+        val candidate2 = equipment(type = EquipmentType.MONITOR, conditionScore = 0.88)
         val pending = allocation(
             id = allocationId,
             state = AllocationState.PENDING,
-            policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, minimumConditionScore = 0.8))
+            policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 2, minimumConditionScore = 0.8))
         )
         every { allocationRepository.findById(allocationId) } returns pending
-        every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(candidateEquipment)
-        // First attempt: candidate is skip-locked; second attempt: candidate is available
-        every { equipmentRepository.findByIdsForUpdate(listOf(candidateEquipment.id)) } returnsMany
-            listOf(emptyList(), listOf(candidateEquipment))
-        every { equipmentRepository.saveAll(any()) } answers { firstArg() }
-        every { allocationRepository.save(any()) } answers { firstArg() }
+        every { equipmentRepository.findAvailableWithMinConditionScore(setOf(EquipmentType.MONITOR), 0.8) } returns listOf(candidate1, candidate2)
+        // Only one of the two candidates could be locked — partial contention
+        every { equipmentRepository.findByIdsForUpdate(any(), 0.8) } returns listOf(candidate1)
 
-        // when
-        processor.processAllocation(allocationId)
-
-        // then – allocation succeeds on the second attempt, never marked FAILED
-        verify(exactly = 2) { equipmentRepository.findByIdsForUpdate(any()) }
-        verify {
-            equipmentRepository.saveAll(match { saved ->
-                saved.size == 1 && saved.single().id == candidateEquipment.id && saved.single().state == EquipmentState.RESERVED
-            })
+        // when / then
+        assertThrows(com.tequipy.challenge.domain.AllocationLockContentionException::class.java) {
+            processor.processAllocation(pending)
         }
-        verify {
-            allocationRepository.save(match {
-                it.id == allocationId &&
-                    it.state == AllocationState.ALLOCATED &&
-                    it.allocatedEquipmentIds == listOf(candidateEquipment.id)
-            })
-        }
-        verify(exactly = 0) {
-            allocationRepository.save(match { it.state == AllocationState.FAILED })
-        }
-    }
-
-    @Test
-    fun `processAllocation should fail immediately without retrying when algorithm fails with no contention`() {
-        // given – only one monitor available, but algorithm needs two (genuine shortage)
-        val allocationId = UUID.randomUUID()
-        val singleMonitor = equipment(type = EquipmentType.MONITOR, conditionScore = 0.92)
-        val pending = allocation(
-            id = allocationId,
-            state = AllocationState.PENDING,
-            policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 2))
-        )
-        every { allocationRepository.findById(allocationId) } returns pending
-        every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(singleMonitor)
-        // All candidates are successfully locked (no contention) – there is just not enough
-        every { equipmentRepository.findByIdsForUpdate(listOf(singleMonitor.id)) } returns listOf(singleMonitor)
-        every { allocationRepository.save(any()) } answers { firstArg() }
-
-        // when
-        processor.processAllocation(allocationId)
-
-        // then – fails on first attempt without any retries
-        verify(exactly = 1) { equipmentRepository.findByState(EquipmentState.AVAILABLE) }
-        verify(exactly = 1) { equipmentRepository.findByIdsForUpdate(any()) }
         verify(exactly = 0) { equipmentRepository.saveAll(any()) }
-        verify(exactly = 1) {
-            allocationRepository.save(match {
-                it.id == allocationId &&
-                    it.state == AllocationState.FAILED &&
-                    it.allocatedEquipmentIds.isEmpty()
-            })
-        }
+        verify(exactly = 0) { allocationRepository.save(any()) }
     }
 
     @Test
@@ -199,13 +147,13 @@ class AllocationProcessorTest {
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, minimumConditionScore = 0.8))
         )
         every { allocationRepository.findById(allocationId) } returns pending
-        every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(selectedEquipment)
-        every { equipmentRepository.findByIdsForUpdate(listOf(selectedEquipment.id)) } returns listOf(selectedEquipment)
+        every { equipmentRepository.findAvailableWithMinConditionScore(setOf(EquipmentType.MONITOR), 0.8) } returns listOf(selectedEquipment)
+        every { equipmentRepository.findByIdsForUpdate(listOf(selectedEquipment.id), 0.8) } returns listOf(selectedEquipment)
         every { equipmentRepository.saveAll(any()) } answers { firstArg() }
         every { allocationRepository.save(any()) } answers { firstArg() }
 
         // when
-        processor.processAllocation(allocationId)
+        processor.processAllocation(pending)
 
         // then
         verify {
@@ -229,7 +177,6 @@ class AllocationProcessorTest {
         allocatedEquipmentIds: List<UUID> = emptyList()
     ) = AllocationRequest(
         id = id,
-        employeeId = UUID.randomUUID(),
         policy = policy,
         state = state,
         allocatedEquipmentIds = allocatedEquipmentIds

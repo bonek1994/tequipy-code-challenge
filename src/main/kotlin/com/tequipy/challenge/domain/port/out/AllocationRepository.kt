@@ -6,5 +6,6 @@ import java.util.UUID
 interface AllocationRepository {
     fun save(allocationRequest: AllocationRequest): AllocationRequest
     fun findById(id: UUID): AllocationRequest?
+    fun findByIdempotencyKey(key: UUID): AllocationRequest?
 }
 

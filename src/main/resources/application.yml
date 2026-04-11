@@ -4,6 +4,26 @@ spring:
     username: ${DB_USERNAME:tequipy}
     password: ${DB_PASSWORD:tequipy}
     driver-class-name: org.postgresql.Driver
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
 
 server:
   port: ${APP_PORT:8080}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health
+  health:
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true

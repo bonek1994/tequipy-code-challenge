@@ -1,11 +1,14 @@
 package com.tequipy.challenge.domain.service
 
+import com.tequipy.challenge.domain.AllocationLockContentionException
+import com.tequipy.challenge.domain.model.AllocationRequest
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.port.out.AllocationRepository
 import com.tequipy.challenge.domain.port.out.EquipmentRepository
+import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -15,81 +18,74 @@ class AllocationProcessor(
     private val allocationRepository: AllocationRepository,
     private val equipmentRepository: EquipmentRepository
 ) {
-    companion object {
-        const val MAX_RETRIES = 3
-        const val RETRY_DELAY_MS = 50L
-    }
-
     private val allocationAlgorithm = AllocationAlgorithm()
+    private val logger = KotlinLogging.logger {}
 
     @Transactional
-    fun processAllocation(allocationId: UUID) {
-        val allocation = allocationRepository.findById(allocationId) ?: return
-        if (allocation.state != AllocationState.PENDING) return
+    fun processAllocation(allocation: AllocationRequest) {
+        // Idempotency: verify the allocation still exists and is PENDING in DB
+        // (guards against duplicate message delivery)
+        val dbAllocation = allocationRepository.findById(allocation.id) ?: return
+        if (dbAllocation.state != AllocationState.PENDING) return
 
-        for (attempt in 0 until MAX_RETRIES) {
-            // Phase 1: find all AVAILABLE equipment and determine which ones are candidates
-            // for at least one required slot (hard constraints only: type + minimumConditionScore).
-            // Re-read on every attempt so that equipment committed by concurrent transactions
-            // between retries is taken into account (PostgreSQL READ COMMITTED semantics).
-            val available = equipmentRepository.findByState(EquipmentState.AVAILABLE)
-            val candidateIds = findCandidateIds(allocation.policy, available)
+        logger.info { "Processing allocation: id=${allocation.id}" }
 
-            if (candidateIds.isEmpty()) {
-                // No equipment matches the hard constraints at all – fail permanently.
-                allocationRepository.save(allocation.copy(state = AllocationState.FAILED, allocatedEquipmentIds = emptyList()))
-                return
-            }
+        // Compute the global minimum condition score and required equipment types from the policy.
+        // Both are used as upfront DB-level filters to exclude ineligible equipment early.
+        // Policy data comes from the message, keeping pre-queue and post-queue processing independent.
+        // The policy is immutable after allocation creation, so the message policy matches the DB policy.
+        val globalMinScore = allocation.policy.mapNotNull { it.minimumConditionScore }.minOrNull() ?: 0.0
+        val requiredTypes = allocation.policy.map { it.type }.toSet()
 
-            // Phase 2: lock only the candidates with SELECT FOR UPDATE SKIP LOCKED.
-            // Rows already locked by concurrent transactions are skipped so we only
-            // work with equipment that is truly available to this request.
-            val lockedCandidates = equipmentRepository.findByIdsForUpdate(candidateIds)
+        // Phase 1: find all AVAILABLE equipment that matches a required type and meets the
+        // global minimum condition score, then determine which ones are candidates for at
+        // least one required slot (hard constraints: type + per-requirement minimumConditionScore).
+        val available = equipmentRepository.findAvailableWithMinConditionScore(requiredTypes, globalMinScore)
+        val candidateIds = findCandidateIds(allocation.policy, available)
 
-            // Detect lock contention: if fewer rows were locked than candidate IDs,
-            // some rows were skipped because a concurrent transaction holds their lock.
-            val hasContention = lockedCandidates.size < candidateIds.size
-
-            // Phase 3: run the scoring algorithm on the locked candidates.
-            val selected = allocationAlgorithm.allocate(
-                policy = allocation.policy,
-                availableEquipment = lockedCandidates
-            )
-
-            if (selected != null) {
-                // Phase 4: reserve the best-scored equipment; the remaining locked rows are
-                // released automatically when this transaction commits.
-                equipmentRepository.saveAll(selected.map { it.copy(state = EquipmentState.RESERVED) })
-                allocationRepository.save(
-                    allocation.copy(
-                        state = AllocationState.ALLOCATED,
-                        allocatedEquipmentIds = selected.map { it.id }
-                    )
-                )
-                return
-            }
-
-            if (!hasContention) {
-                // We held locks on every candidate but the algorithm still could not satisfy
-                // all requirements – this is a genuine equipment shortage, not a race.
-                // No benefit in retrying.
-                allocationRepository.save(allocation.copy(state = AllocationState.FAILED, allocatedEquipmentIds = emptyList()))
-                return
-            }
-
-            // Lock contention was detected. Sleep briefly outside active SQL statements so
-            // that the competing transaction has a chance to commit and release its locks
-            // before the next attempt. The sleep is intentionally inside the transaction;
-            // splitting it out would require REQUIRES_NEW propagation which is incompatible
-            // with the current architecture where the outer AllocationService transaction
-            // must be visible to this method before it commits.
-            if (attempt < MAX_RETRIES - 1) {
-                Thread.sleep(RETRY_DELAY_MS)
-            }
+        if (candidateIds.isEmpty()) {
+            logger.warn { "Allocation ${allocation.id} failed: no candidate equipment found for policy" }
+            allocationRepository.save(dbAllocation.copy(state = AllocationState.FAILED, allocatedEquipmentIds = emptyList()))
+            return
         }
 
-        // All retry attempts exhausted – still failing due to lock contention.
-        allocationRepository.save(allocation.copy(state = AllocationState.FAILED, allocatedEquipmentIds = emptyList()))
+        // Phase 2: lock only the candidates with SELECT FOR UPDATE SKIP LOCKED,
+        // also applying the global condition score filter upfront.
+        // Rows already locked by concurrent transactions are skipped so we only
+        // work with equipment that is truly available to this request.
+        val lockedCandidates = equipmentRepository.findByIdsForUpdate(candidateIds, globalMinScore)
+
+        // If any candidates are locked by concurrent transactions (partial or full contention),
+        // throw to trigger retry so we can attempt again with all candidates available.
+        if (lockedCandidates.size < candidateIds.size) {
+            logger.warn {
+                "Lock contention for allocation ${allocation.id}: obtained ${lockedCandidates.size}/${candidateIds.size} candidate locks, triggering retry"
+            }
+            throw AllocationLockContentionException(allocation.id)
+        }
+
+        // Phase 3: run the scoring algorithm on the locked candidates.
+        val selected = allocationAlgorithm.allocate(
+            policy = allocation.policy,
+            availableEquipment = lockedCandidates
+        )
+
+        if (selected == null) {
+            logger.warn { "Allocation ${allocation.id} failed: algorithm could not satisfy policy requirements" }
+            allocationRepository.save(dbAllocation.copy(state = AllocationState.FAILED, allocatedEquipmentIds = emptyList()))
+            return
+        }
+
+        // Phase 4: reserve the best-scored equipment; the remaining locked rows are
+        // released automatically when this transaction commits.
+        equipmentRepository.saveAll(selected.map { it.copy(state = EquipmentState.RESERVED) })
+        allocationRepository.save(
+            dbAllocation.copy(
+                state = AllocationState.ALLOCATED,
+                allocatedEquipmentIds = selected.map { it.id }
+            )
+        )
+        logger.info { "Allocation ${allocation.id} processed successfully: reserved ${selected.size} equipment item(s)" }
     }
 
     private fun findCandidateIds(policy: List<EquipmentPolicyRequirement>, available: List<Equipment>): List<UUID> {

@@ -37,6 +37,29 @@ spec:
                 secretKeyRef:
                   name: tequipy-secret
                   key: DB_USERNAME
+        - name: wait-for-rabbitmq
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              count=0; max=30;
+              until nc -z "$RABBITMQ_HOST" "$RABBITMQ_PORT"; do
+                count=$((count+1));
+                if [ "$count" -ge "$max" ]; then echo "timed out waiting for rabbitmq"; exit 1; fi;
+                echo "waiting for rabbitmq ($count/$max)"; sleep 2;
+              done
+          env:
+            - name: RABBITMQ_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: tequipy-config
+                  key: RABBITMQ_HOST
+            - name: RABBITMQ_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: tequipy-config
+                  key: RABBITMQ_PORT
       containers:
         - name: tequipy-app
           image: tequipy-code-challenge:local
@@ -74,19 +97,42 @@ spec:
                 secretKeyRef:
                   name: tequipy-secret
                   key: DB_PASSWORD
+            - name: RABBITMQ_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: tequipy-config
+                  key: RABBITMQ_HOST
+            - name: RABBITMQ_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: tequipy-config
+                  key: RABBITMQ_PORT
+            - name: RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: tequipy-secret
+                  key: RABBITMQ_USERNAME
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tequipy-secret
+                  key: RABBITMQ_PASSWORD
           startupProbe:
-            tcpSocket:
+            httpGet:
+              path: /actuator/health/liveness
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 5
             failureThreshold: 12
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /actuator/health/readiness
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /actuator/health/liveness
               port: 8080
             initialDelaySeconds: 20
             periodSeconds: 15
