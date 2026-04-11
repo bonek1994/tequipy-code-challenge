@@ -1,0 +1,428 @@
+openapi: 3.0.1
+info:
+  title: Tequipy Equipment Management API
+  description: >
+    REST API for managing equipment inventory and allocation requests.
+    Allocation processing is asynchronous and handled via RabbitMQ.
+  version: 1.0.0
+
+tags:
+  - name: Equipments
+    description: Manage equipment inventory
+  - name: Allocations
+    description: Manage equipment allocation requests
+
+paths:
+
+  /equipments:
+    post:
+      tags: [Equipments]
+      summary: Register new equipment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EquipmentRequest'
+            example:
+              type: MAIN_COMPUTER
+              brand: Apple
+              model: "MacBook Pro 14\""
+              conditionScore: 0.95
+              purchaseDate: "2024-01-15"
+      responses:
+        "201":
+          description: Equipment registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EquipmentResponse'
+        "400":
+          description: Invalid request (blank brand/model, invalid condition score)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: must not be blank
+
+    get:
+      tags: [Equipments]
+      summary: List equipment
+      description: Returns all equipment, optionally filtered by state.
+      parameters:
+        - name: state
+          in: query
+          required: false
+          description: Filter by equipment state
+          schema:
+            $ref: '#/components/schemas/EquipmentState'
+      responses:
+        "200":
+          description: List of equipment
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EquipmentResponse'
+
+  /equipments/{id}/retire:
+    post:
+      tags: [Equipments]
+      summary: Retire equipment
+      description: Retires an AVAILABLE piece of equipment with a mandatory reason.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Equipment UUID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetireEquipmentRequest'
+            example:
+              reason: "Hardware failure — screen cracked"
+      responses:
+        "200":
+          description: Equipment retired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EquipmentResponse'
+        "400":
+          description: Blank retirement reason
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: must not be blank
+        "404":
+          description: Equipment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Equipment not found with id: 00000000-0000-0000-0000-000000000000"
+        "409":
+          description: Equipment is not in AVAILABLE state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Equipment is not available for retirement"
+
+  /allocations:
+    post:
+      tags: [Allocations]
+      summary: Create an allocation request
+      description: >
+        Submits a new allocation request. Processing is asynchronous via RabbitMQ —
+        the returned allocation starts in PENDING state and transitions to ALLOCATED
+        or FAILED once processed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAllocationRequest'
+            example:
+              policy:
+                - type: MAIN_COMPUTER
+                  quantity: 1
+                  minimumConditionScore: 0.8
+                  preferredBrand: Apple
+                - type: MONITOR
+                  quantity: 1
+      responses:
+        "202":
+          description: Allocation request accepted and queued for async processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllocationResponse'
+        "400":
+          description: "Invalid allocation policy (empty policy, quantity ≤ 0, or invalid condition score)"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Allocation policy must not be empty"
+
+  /allocations/{id}:
+    get:
+      tags: [Allocations]
+      summary: Get an allocation by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Allocation UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Allocation found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllocationResponse'
+        "404":
+          description: Allocation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Allocation not found with id: 00000000-0000-0000-0000-000000000000"
+
+  /allocations/{id}/confirm:
+    post:
+      tags: [Allocations]
+      summary: Confirm an allocation
+      description: >
+        Confirms an ALLOCATED request, moving all reserved equipment to ASSIGNED state.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Allocation UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Allocation confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllocationResponse'
+        "404":
+          description: Allocation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Allocation not found with id: 00000000-0000-0000-0000-000000000000"
+        "409":
+          description: Allocation is not in ALLOCATED state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Only allocated requests can be confirmed"
+
+  /allocations/{id}/cancel:
+    post:
+      tags: [Allocations]
+      summary: Cancel an allocation
+      description: >
+        Cancels a PENDING, ALLOCATED, or FAILED allocation.
+        Reserved equipment is released back to AVAILABLE.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Allocation UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Allocation cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllocationResponse'
+        "404":
+          description: Allocation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Allocation not found with id: 00000000-0000-0000-0000-000000000000"
+        "409":
+          description: Allocation cannot be cancelled in its current state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Only pending, allocated or failed requests can be cancelled"
+
+components:
+  schemas:
+
+    EquipmentRequest:
+      type: object
+      description: Request body for registering new equipment
+      required: [type, brand, model, conditionScore, purchaseDate]
+      properties:
+        type:
+          $ref: '#/components/schemas/EquipmentType'
+        brand:
+          type: string
+          description: Equipment brand
+          example: Apple
+        model:
+          type: string
+          description: Equipment model name
+          example: "MacBook Pro 14\""
+        conditionScore:
+          type: number
+          format: double
+          description: Condition score between 0.0 (worst) and 1.0 (best)
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.95
+        purchaseDate:
+          type: string
+          format: date
+          description: Date the equipment was purchased
+          example: "2024-01-15"
+
+    RetireEquipmentRequest:
+      type: object
+      description: Request body for retiring equipment
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          description: Reason for retiring the equipment
+          example: "Hardware failure — screen cracked"
+
+    EquipmentResponse:
+      type: object
+      description: Equipment details
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the equipment
+        type:
+          $ref: '#/components/schemas/EquipmentType'
+        brand:
+          type: string
+          description: Equipment brand
+          example: Apple
+        model:
+          type: string
+          description: Equipment model name
+          example: "MacBook Pro 14\""
+        state:
+          $ref: '#/components/schemas/EquipmentState'
+        conditionScore:
+          type: number
+          format: double
+          description: Condition score between 0.0 (worst) and 1.0 (best)
+          example: 0.95
+        purchaseDate:
+          type: string
+          format: date
+          description: Date the equipment was purchased
+          example: "2024-01-15"
+        retiredReason:
+          type: string
+          nullable: true
+          description: Reason for retirement (present only when state is RETIRED)
+
+    CreateAllocationRequest:
+      type: object
+      description: Request body for creating a new allocation request
+      required: [policy]
+      properties:
+        policy:
+          type: array
+          description: "List of equipment requirements; must contain at least one entry"
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/EquipmentPolicyRequirementRequest'
+
+    EquipmentPolicyRequirementRequest:
+      type: object
+      description: A single equipment requirement within an allocation policy
+      required: [type]
+      properties:
+        type:
+          $ref: '#/components/schemas/EquipmentType'
+        quantity:
+          type: integer
+          description: Number of units required (minimum 1)
+          minimum: 1
+          default: 1
+          example: 1
+        minimumConditionScore:
+          type: number
+          format: double
+          nullable: true
+          description: "Minimum acceptable condition score (0.0–1.0); null means no constraint"
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.7
+        preferredBrand:
+          type: string
+          nullable: true
+          description: "Preferred equipment brand (soft preference, not mandatory)"
+          example: Apple
+
+    AllocationResponse:
+      type: object
+      description: Allocation request details
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the allocation request
+        state:
+          $ref: '#/components/schemas/AllocationState'
+        policy:
+          type: array
+          description: Equipment policy requirements that drive this allocation
+          items:
+            $ref: '#/components/schemas/EquipmentPolicyRequirementRequest'
+        allocatedEquipmentIds:
+          type: array
+          description: IDs of equipment items reserved or assigned by this allocation
+          items:
+            type: string
+            format: uuid
+        allocatedEquipments:
+          type: array
+          description: Full details of equipment reserved or assigned by this allocation
+          items:
+            $ref: '#/components/schemas/EquipmentResponse'
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+
+    EquipmentType:
+      type: string
+      description: Type of equipment
+      enum: [MAIN_COMPUTER, MONITOR, KEYBOARD, MOUSE]
+
+    EquipmentState:
+      type: string
+      description: Current state of a piece of equipment
+      enum: [AVAILABLE, RESERVED, ASSIGNED, RETIRED]
+
+    AllocationState:
+      type: string
+      description: Current state of an allocation request
+      enum: [PENDING, ALLOCATED, FAILED, CONFIRMED, CANCELLED]
