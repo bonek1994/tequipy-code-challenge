@@ -32,11 +32,9 @@ class AllocationServiceTest {
     @Test
     fun `createAllocation should persist pending request and publish event`() {
         // given
-        val employeeId = UUID.randomUUID()
         val captured = slot<AllocationRequest>()
         val saved = AllocationRequest(
             id = UUID.randomUUID(),
-            employeeId = employeeId,
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
             state = AllocationState.PENDING,
             allocatedEquipmentIds = emptyList()
@@ -44,7 +42,7 @@ class AllocationServiceTest {
         every { allocationRepository.save(capture(captured)) } returns saved
 
         // when
-        val result = service.createAllocation(employeeId, saved.policy)
+        val result = service.createAllocation(saved.policy)
 
         // then
         assertEquals(AllocationState.PENDING, captured.captured.state)
@@ -56,7 +54,7 @@ class AllocationServiceTest {
     fun `createAllocation should reject empty policy`() {
         // when / then
         assertThrows(BadRequestException::class.java) {
-            service.createAllocation(UUID.randomUUID(), emptyList())
+            service.createAllocation(emptyList())
         }
     }
 
@@ -65,7 +63,6 @@ class AllocationServiceTest {
         // when / then
         assertThrows(BadRequestException::class.java) {
             service.createAllocation(
-                UUID.randomUUID(),
                 listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 0))
             )
         }
@@ -76,7 +73,6 @@ class AllocationServiceTest {
         // when / then
         assertThrows(BadRequestException::class.java) {
             service.createAllocation(
-                UUID.randomUUID(),
                 listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, minimumConditionScore = 1.1))
             )
         }
@@ -101,7 +97,6 @@ class AllocationServiceTest {
         val equipment = equipment(id = UUID.randomUUID(), state = EquipmentState.RESERVED)
         val allocation = AllocationRequest(
             id = allocationId,
-            employeeId = UUID.randomUUID(),
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
             state = AllocationState.ALLOCATED,
             allocatedEquipmentIds = listOf(equipment.id)
@@ -127,7 +122,6 @@ class AllocationServiceTest {
         val equipment = equipment(id = UUID.randomUUID(), state = EquipmentState.RESERVED)
         val allocation = AllocationRequest(
             id = allocationId,
-            employeeId = UUID.randomUUID(),
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
             state = AllocationState.ALLOCATED,
             allocatedEquipmentIds = listOf(equipment.id)
@@ -152,7 +146,6 @@ class AllocationServiceTest {
         val allocationId = UUID.randomUUID()
         val allocation = AllocationRequest(
             id = allocationId,
-            employeeId = UUID.randomUUID(),
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
             state = AllocationState.PENDING,
             allocatedEquipmentIds = emptyList()
@@ -176,7 +169,6 @@ class AllocationServiceTest {
         val allocationId = UUID.randomUUID()
         val allocation = AllocationRequest(
             id = allocationId,
-            employeeId = UUID.randomUUID(),
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
             state = AllocationState.FAILED,
             allocatedEquipmentIds = emptyList()
@@ -200,7 +192,6 @@ class AllocationServiceTest {
         val allocationId = UUID.randomUUID()
         every { allocationRepository.findById(allocationId) } returns AllocationRequest(
             id = allocationId,
-            employeeId = UUID.randomUUID(),
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
             state = AllocationState.CONFIRMED,
             allocatedEquipmentIds = emptyList()
@@ -219,7 +210,6 @@ class AllocationServiceTest {
         val equipment = equipment(id = UUID.randomUUID(), state = EquipmentState.ASSIGNED)
         val allocation = AllocationRequest(
             id = allocationId,
-            employeeId = UUID.randomUUID(),
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
             state = AllocationState.ALLOCATED,
             allocatedEquipmentIds = listOf(equipment.id)
@@ -247,7 +237,6 @@ class AllocationServiceTest {
         val allocationId = UUID.randomUUID()
         every { allocationRepository.findById(allocationId) } returns AllocationRequest(
             id = allocationId,
-            employeeId = UUID.randomUUID(),
             policy = emptyList(),
             state = AllocationState.PENDING,
             allocatedEquipmentIds = emptyList()

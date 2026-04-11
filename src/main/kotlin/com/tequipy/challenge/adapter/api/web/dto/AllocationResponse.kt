@@ -5,7 +5,6 @@ import java.util.UUID
 
 data class AllocationResponse(
     val id: UUID,
-    val employeeId: UUID,
     val state: AllocationState,
     val policy: List<EquipmentPolicyRequirementRequest>,
     val allocatedEquipmentIds: List<UUID>,

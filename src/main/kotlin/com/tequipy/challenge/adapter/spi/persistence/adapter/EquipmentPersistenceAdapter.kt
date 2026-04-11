@@ -4,6 +4,7 @@ import com.tequipy.challenge.adapter.spi.persistence.mapper.EquipmentEntityMappe
 import com.tequipy.challenge.adapter.spi.persistence.repository.EquipmentJdbcRepository
 import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentState
+import com.tequipy.challenge.domain.model.EquipmentType
 import com.tequipy.challenge.domain.port.out.EquipmentRepository
 import org.springframework.stereotype.Component
 import java.util.UUID
@@ -40,8 +41,12 @@ class EquipmentPersistenceAdapter(
         return jdbcRepository.findByState(state).map(mapper::toDomain)
     }
 
-    override fun findByIdsForUpdate(ids: List<UUID>): List<Equipment> {
-        return jdbcRepository.findByIdsForUpdate(ids).map(mapper::toDomain)
+    override fun findAvailableWithMinConditionScore(types: Set<EquipmentType>, minScore: Double): List<Equipment> {
+        return jdbcRepository.findAvailableWithMinConditionScore(types, minScore).map(mapper::toDomain)
+    }
+
+    override fun findByIdsForUpdate(ids: List<UUID>, minConditionScore: Double): List<Equipment> {
+        return jdbcRepository.findByIdsForUpdate(ids, minConditionScore).map(mapper::toDomain)
     }
 
     override fun existsById(id: UUID): Boolean {

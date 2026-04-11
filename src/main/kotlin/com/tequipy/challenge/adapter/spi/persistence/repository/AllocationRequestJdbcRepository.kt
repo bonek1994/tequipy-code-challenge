@@ -16,10 +16,10 @@ class AllocationRequestJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
     private val allocationRowMapper = RowMapper<AllocationRequestEntity> { rs, _ ->
         AllocationRequestEntity(
             id = rs.getObject("id", UUID::class.java),
-            employeeId = rs.getObject("employee_id", UUID::class.java),
             state = AllocationState.valueOf(rs.getString("state")),
             policy = emptyList(),
-            allocatedEquipmentIds = emptyList()
+            allocatedEquipmentIds = emptyList(),
+            idempotencyKey = rs.getObject("idempotency_key", UUID::class.java)
         )
     }
 
@@ -36,13 +36,12 @@ class AllocationRequestJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
     fun save(entity: AllocationRequestEntity): AllocationRequestEntity {
         jdbcTemplate.update(
             """
-            INSERT INTO allocation_requests (id, employee_id, state)
+            INSERT INTO allocation_requests (id, state, idempotency_key)
             VALUES (?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
-                employee_id = EXCLUDED.employee_id,
                 state = EXCLUDED.state
             """.trimIndent(),
-            entity.id, entity.employeeId, entity.state.name
+            entity.id, entity.state.name, entity.idempotencyKey
         )
 
         jdbcTemplate.update(
@@ -95,6 +94,32 @@ class AllocationRequestJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
             "SELECT equipment_id FROM allocation_equipment_ids WHERE allocation_request_id = ?",
             { rs, _ -> rs.getObject("equipment_id", UUID::class.java) },
             id
+        )
+
+        return allocation.copy(policy = policy, allocatedEquipmentIds = equipmentIds)
+    }
+
+    fun findByIdempotencyKey(key: UUID): AllocationRequestEntity? {
+        val allocation = try {
+            jdbcTemplate.queryForObject(
+                "SELECT * FROM allocation_requests WHERE idempotency_key = ?",
+                allocationRowMapper,
+                key
+            )
+        } catch (e: EmptyResultDataAccessException) {
+            null
+        } ?: return null
+
+        val policy = jdbcTemplate.query(
+            "SELECT * FROM allocation_policy_requirements WHERE allocation_request_id = ?",
+            policyRowMapper,
+            allocation.id
+        )
+
+        val equipmentIds = jdbcTemplate.query(
+            "SELECT equipment_id FROM allocation_equipment_ids WHERE allocation_request_id = ?",
+            { rs, _ -> rs.getObject("equipment_id", UUID::class.java) },
+            allocation.id
         )
 
         return allocation.copy(policy = policy, allocatedEquipmentIds = equipmentIds)

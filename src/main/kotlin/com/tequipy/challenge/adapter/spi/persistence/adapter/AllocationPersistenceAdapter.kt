@@ -21,6 +21,10 @@ class AllocationPersistenceAdapter(
     override fun findById(id: UUID): AllocationRequest? {
         return jdbcRepository.findById(id)?.let(mapper::toDomain)
     }
+
+    override fun findByIdempotencyKey(key: UUID): AllocationRequest? {
+        return jdbcRepository.findByIdempotencyKey(key)?.let(mapper::toDomain)
+    }
 }
 
 

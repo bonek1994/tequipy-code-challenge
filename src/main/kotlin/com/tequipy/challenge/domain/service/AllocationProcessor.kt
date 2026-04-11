@@ -23,9 +23,15 @@ class AllocationProcessor(
         val allocation = allocationRepository.findById(allocationId) ?: return
         if (allocation.state != AllocationState.PENDING) return
 
-        // Phase 1: find all AVAILABLE equipment and determine which ones are candidates
-        // for at least one required slot (hard constraints only: type + minimumConditionScore)
-        val available = equipmentRepository.findByState(EquipmentState.AVAILABLE)
+        // Compute the global minimum condition score and required equipment types from the policy.
+        // Both are used as upfront DB-level filters to exclude ineligible equipment early.
+        val globalMinScore = allocation.policy.mapNotNull { it.minimumConditionScore }.minOrNull() ?: 0.0
+        val requiredTypes = allocation.policy.map { it.type }.toSet()
+
+        // Phase 1: find all AVAILABLE equipment that matches a required type and meets the
+        // global minimum condition score, then determine which ones are candidates for at
+        // least one required slot (hard constraints: type + per-requirement minimumConditionScore).
+        val available = equipmentRepository.findAvailableWithMinConditionScore(requiredTypes, globalMinScore)
         val candidateIds = findCandidateIds(allocation.policy, available)
 
         if (candidateIds.isEmpty()) {
@@ -33,10 +39,11 @@ class AllocationProcessor(
             return
         }
 
-        // Phase 2: lock only the candidates with SELECT FOR UPDATE SKIP LOCKED.
+        // Phase 2: lock only the candidates with SELECT FOR UPDATE SKIP LOCKED,
+        // also applying the global condition score filter upfront.
         // Rows already locked by concurrent transactions are skipped so we only
         // work with equipment that is truly available to this request.
-        val lockedCandidates = equipmentRepository.findByIdsForUpdate(candidateIds)
+        val lockedCandidates = equipmentRepository.findByIdsForUpdate(candidateIds, globalMinScore)
 
         // If any candidates are locked by concurrent transactions (partial or full contention),
         // throw to trigger retry so we can attempt again with all candidates available.

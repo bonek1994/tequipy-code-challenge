@@ -23,7 +23,9 @@ class AllocationService(
     private val allocationEventPublisher: AllocationEventPublisher
 ) : AllocationUseCase {
 
-    override fun createAllocation(employeeId: UUID, policy: List<EquipmentPolicyRequirement>): AllocationRequest {
+    override fun createAllocation(
+        policy: List<EquipmentPolicyRequirement>
+    ): AllocationRequest {
         if (policy.isEmpty()) {
             throw BadRequestException("Allocation policy must not be empty")
         }
@@ -37,7 +39,6 @@ class AllocationService(
         val allocation = allocationRepository.save(
             AllocationRequest(
                 id = UUID.randomUUID(),
-                employeeId = employeeId,
                 policy = policy,
                 state = AllocationState.PENDING,
                 allocatedEquipmentIds = emptyList()

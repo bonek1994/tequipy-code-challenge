@@ -29,7 +29,6 @@ class AllocationController(
     @PostMapping
     fun createAllocation(@Valid @RequestBody request: CreateAllocationRequest): ResponseEntity<AllocationResponse> {
         val allocation = allocationUseCase.createAllocation(
-            employeeId = request.employeeId,
             policy = request.policy.map(allocationMapper::toDomain)
         )
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(allocation.id))
