@@ -77,13 +77,21 @@ class EquipmentJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
         return jdbcTemplate.query("SELECT * FROM equipments WHERE state = ?", rowMapper, state.name)
     }
 
-    fun findByIdsForUpdate(ids: List<UUID>): List<EquipmentEntity> {
+    fun findAvailableWithMinConditionScore(minScore: Double): List<EquipmentEntity> {
+        return jdbcTemplate.query(
+            "SELECT * FROM equipments WHERE state = ? AND condition_score >= ?",
+            rowMapper,
+            EquipmentState.AVAILABLE.name, minScore
+        )
+    }
+
+    fun findByIdsForUpdate(ids: List<UUID>, minConditionScore: Double = 0.0): List<EquipmentEntity> {
         if (ids.isEmpty()) return emptyList()
         val placeholders = ids.joinToString(",") { "?" }
         return jdbcTemplate.query(
-            "SELECT * FROM equipments WHERE id IN ($placeholders) AND state = ? FOR UPDATE SKIP LOCKED",
+            "SELECT * FROM equipments WHERE id IN ($placeholders) AND state = ? AND condition_score >= ? FOR UPDATE SKIP LOCKED",
             rowMapper,
-            *ids.toTypedArray(), EquipmentState.AVAILABLE.name
+            *ids.toTypedArray(), EquipmentState.AVAILABLE.name, minConditionScore
         )
     }
 

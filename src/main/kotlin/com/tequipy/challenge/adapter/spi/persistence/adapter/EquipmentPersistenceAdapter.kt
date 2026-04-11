@@ -40,8 +40,12 @@ class EquipmentPersistenceAdapter(
         return jdbcRepository.findByState(state).map(mapper::toDomain)
     }
 
-    override fun findByIdsForUpdate(ids: List<UUID>): List<Equipment> {
-        return jdbcRepository.findByIdsForUpdate(ids).map(mapper::toDomain)
+    override fun findAvailableWithMinConditionScore(minScore: Double): List<Equipment> {
+        return jdbcRepository.findAvailableWithMinConditionScore(minScore).map(mapper::toDomain)
+    }
+
+    override fun findByIdsForUpdate(ids: List<UUID>, minConditionScore: Double): List<Equipment> {
+        return jdbcRepository.findByIdsForUpdate(ids, minConditionScore).map(mapper::toDomain)
     }
 
     override fun existsById(id: UUID): Boolean {

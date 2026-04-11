@@ -23,7 +23,16 @@ class AllocationService(
     private val allocationEventPublisher: AllocationEventPublisher
 ) : AllocationUseCase {
 
-    override fun createAllocation(employeeId: UUID, policy: List<EquipmentPolicyRequirement>): AllocationRequest {
+    override fun createAllocation(
+        employeeId: UUID,
+        policy: List<EquipmentPolicyRequirement>,
+        idempotencyKey: UUID?
+    ): AllocationRequest {
+        if (idempotencyKey != null) {
+            val existing = allocationRepository.findByIdempotencyKey(idempotencyKey)
+            if (existing != null) return existing
+        }
+
         if (policy.isEmpty()) {
             throw BadRequestException("Allocation policy must not be empty")
         }
@@ -40,7 +49,8 @@ class AllocationService(
                 employeeId = employeeId,
                 policy = policy,
                 state = AllocationState.PENDING,
-                allocatedEquipmentIds = emptyList()
+                allocatedEquipmentIds = emptyList(),
+                idempotencyKey = idempotencyKey
             )
         )
 

@@ -53,6 +53,57 @@ class AllocationServiceTest {
     }
 
     @Test
+    fun `createAllocation should return existing allocation when idempotency key already used`() {
+        // given
+        val employeeId = UUID.randomUUID()
+        val idempotencyKey = UUID.randomUUID()
+        val existing = AllocationRequest(
+            id = UUID.randomUUID(),
+            employeeId = employeeId,
+            policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
+            state = AllocationState.PENDING,
+            allocatedEquipmentIds = emptyList(),
+            idempotencyKey = idempotencyKey
+        )
+        every { allocationRepository.findByIdempotencyKey(idempotencyKey) } returns existing
+
+        // when
+        val result = service.createAllocation(employeeId, existing.policy, idempotencyKey)
+
+        // then
+        assertEquals(existing, result)
+        verify(exactly = 0) { allocationRepository.save(any()) }
+        verify(exactly = 0) { allocationEventPublisher.publishAllocationCreated(any()) }
+    }
+
+    @Test
+    fun `createAllocation should store idempotency key when provided for new allocation`() {
+        // given
+        val employeeId = UUID.randomUUID()
+        val idempotencyKey = UUID.randomUUID()
+        val policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1))
+        val captured = slot<AllocationRequest>()
+        val saved = AllocationRequest(
+            id = UUID.randomUUID(),
+            employeeId = employeeId,
+            policy = policy,
+            state = AllocationState.PENDING,
+            allocatedEquipmentIds = emptyList(),
+            idempotencyKey = idempotencyKey
+        )
+        every { allocationRepository.findByIdempotencyKey(idempotencyKey) } returns null
+        every { allocationRepository.save(capture(captured)) } returns saved
+
+        // when
+        val result = service.createAllocation(employeeId, policy, idempotencyKey)
+
+        // then
+        assertEquals(idempotencyKey, captured.captured.idempotencyKey)
+        assertEquals(saved, result)
+        verify { allocationEventPublisher.publishAllocationCreated(saved.id) }
+    }
+
+    @Test
     fun `createAllocation should reject empty policy`() {
         // when / then
         assertThrows(BadRequestException::class.java) {

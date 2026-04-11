@@ -30,7 +30,8 @@ class AllocationController(
     fun createAllocation(@Valid @RequestBody request: CreateAllocationRequest): ResponseEntity<AllocationResponse> {
         val allocation = allocationUseCase.createAllocation(
             employeeId = request.employeeId,
-            policy = request.policy.map(allocationMapper::toDomain)
+            policy = request.policy.map(allocationMapper::toDomain),
+            idempotencyKey = request.idempotencyKey
         )
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(allocation.id))
     }

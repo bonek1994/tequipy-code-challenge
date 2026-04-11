@@ -11,6 +11,7 @@ interface EquipmentRepository {
     fun findAll(): List<Equipment>
     fun findByIds(ids: List<UUID>): List<Equipment>
     fun findByState(state: EquipmentState): List<Equipment>
-    fun findByIdsForUpdate(ids: List<UUID>): List<Equipment>
+    fun findAvailableWithMinConditionScore(minScore: Double): List<Equipment>
+    fun findByIdsForUpdate(ids: List<UUID>, minConditionScore: Double = 0.0): List<Equipment>
     fun existsById(id: UUID): Boolean
 }

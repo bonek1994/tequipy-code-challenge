@@ -54,7 +54,7 @@ class AllocationRetryIntegrationTest {
     }
 
     @Test
-    fun `message should be routed to DLQ after 3 consecutive AllocationLockContentionExceptions`() {
+    fun `message should be routed to DLQ after 12 consecutive AllocationLockContentionExceptions`() {
         // given: processor always throws lock contention
         val allocationId = UUID.randomUUID()
         Mockito.doThrow(AllocationLockContentionException(allocationId))
@@ -65,13 +65,13 @@ class AllocationRetryIntegrationTest {
 
         // then: message should appear in DLQ after retry exhaustion
         val dlqMessage = await()
-            .atMost(Duration.ofSeconds(15))
+            .atMost(Duration.ofSeconds(60))
             .pollInterval(Duration.ofMillis(500))
             .until({ amqpTemplate.receiveAndConvert(RabbitMQConfig.ALLOCATION_DLQ) }, { it != null })
-        assertNotNull(dlqMessage, "Message should be routed to DLQ after 3 retry attempts")
+        assertNotNull(dlqMessage, "Message should be routed to DLQ after 12 retry attempts")
 
         // verify that the processor was invoked exactly MAX_RETRY_ATTEMPTS times
-        Mockito.verify(allocationProcessor, Mockito.timeout(10_000).times(RabbitMQConfig.MAX_RETRY_ATTEMPTS))
+        Mockito.verify(allocationProcessor, Mockito.timeout(30_000).times(RabbitMQConfig.MAX_RETRY_ATTEMPTS))
             .processAllocation(allocationId)
     }
 }

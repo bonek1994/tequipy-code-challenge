@@ -9,6 +9,7 @@ data class AllocationResponse(
     val state: AllocationState,
     val policy: List<EquipmentPolicyRequirementRequest>,
     val allocatedEquipmentIds: List<UUID>,
-    val allocatedEquipments: List<EquipmentResponse>
+    val allocatedEquipments: List<EquipmentResponse>,
+    val idempotencyKey: UUID? = null
 )
 

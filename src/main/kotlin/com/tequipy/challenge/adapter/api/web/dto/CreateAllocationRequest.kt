@@ -11,6 +11,8 @@ data class CreateAllocationRequest(
 
     @field:Valid
     @field:NotEmpty
-    val policy: List<EquipmentPolicyRequirementRequest>
+    val policy: List<EquipmentPolicyRequirementRequest>,
+
+    val idempotencyKey: UUID? = null
 )
 

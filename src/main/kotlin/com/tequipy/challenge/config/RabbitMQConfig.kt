@@ -23,7 +23,7 @@ class RabbitMQConfig {
         const val ALLOCATION_QUEUE = "allocation.queue"
         const val ALLOCATION_DLQ = "allocation.dlq"
         const val ALLOCATION_DLX = "allocation.dlx"
-        const val MAX_RETRY_ATTEMPTS = 3
+        const val MAX_RETRY_ATTEMPTS = 12
     }
 
     @Bean

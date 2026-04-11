@@ -7,6 +7,7 @@ data class AllocationRequest(
     val employeeId: UUID,
     val policy: List<EquipmentPolicyRequirement>,
     val state: AllocationState,
-    val allocatedEquipmentIds: List<UUID>
+    val allocatedEquipmentIds: List<UUID>,
+    val idempotencyKey: UUID? = null
 )
 

@@ -8,6 +8,7 @@ data class AllocationRequestEntity(
     val employeeId: UUID,
     val state: AllocationState,
     val policy: List<EquipmentPolicyRequirementEmbeddable>,
-    val allocatedEquipmentIds: List<UUID>
+    val allocatedEquipmentIds: List<UUID>,
+    val idempotencyKey: UUID? = null
 )
 

@@ -23,9 +23,14 @@ class AllocationProcessor(
         val allocation = allocationRepository.findById(allocationId) ?: return
         if (allocation.state != AllocationState.PENDING) return
 
-        // Phase 1: find all AVAILABLE equipment and determine which ones are candidates
-        // for at least one required slot (hard constraints only: type + minimumConditionScore)
-        val available = equipmentRepository.findByState(EquipmentState.AVAILABLE)
+        // Compute the global minimum condition score across all policy requirements.
+        // This is used as an upfront DB-level filter to exclude ineligible equipment early.
+        val globalMinScore = allocation.policy.mapNotNull { it.minimumConditionScore }.minOrNull() ?: 0.0
+
+        // Phase 1: find all AVAILABLE equipment that meets the global minimum condition score
+        // and determine which ones are candidates for at least one required slot
+        // (hard constraints only: type + per-requirement minimumConditionScore).
+        val available = equipmentRepository.findAvailableWithMinConditionScore(globalMinScore)
         val candidateIds = findCandidateIds(allocation.policy, available)
 
         if (candidateIds.isEmpty()) {
@@ -33,10 +38,11 @@ class AllocationProcessor(
             return
         }
 
-        // Phase 2: lock only the candidates with SELECT FOR UPDATE SKIP LOCKED.
+        // Phase 2: lock only the candidates with SELECT FOR UPDATE SKIP LOCKED,
+        // also applying the global condition score filter upfront.
         // Rows already locked by concurrent transactions are skipped so we only
         // work with equipment that is truly available to this request.
-        val lockedCandidates = equipmentRepository.findByIdsForUpdate(candidateIds)
+        val lockedCandidates = equipmentRepository.findByIdsForUpdate(candidateIds, globalMinScore)
 
         // If any candidates are locked by concurrent transactions (partial or full contention),
         // throw to trigger retry so we can attempt again with all candidates available.

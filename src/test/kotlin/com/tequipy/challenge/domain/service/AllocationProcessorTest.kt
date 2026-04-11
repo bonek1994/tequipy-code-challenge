@@ -32,7 +32,7 @@ class AllocationProcessorTest {
         processor.processAllocation(allocationId)
 
         // then
-        verify(exactly = 0) { equipmentRepository.findByState(any()) }
+        verify(exactly = 0) { equipmentRepository.findAvailableWithMinConditionScore(any()) }
         verify(exactly = 0) { equipmentRepository.saveAll(any()) }
         verify(exactly = 0) { allocationRepository.save(any()) }
     }
@@ -51,7 +51,7 @@ class AllocationProcessorTest {
         processor.processAllocation(allocationId)
 
         // then
-        verify(exactly = 0) { equipmentRepository.findByState(any()) }
+        verify(exactly = 0) { equipmentRepository.findAvailableWithMinConditionScore(any()) }
         verify(exactly = 0) { equipmentRepository.saveAll(any()) }
         verify(exactly = 0) { allocationRepository.save(any()) }
     }
@@ -65,9 +65,8 @@ class AllocationProcessorTest {
             state = AllocationState.PENDING,
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, minimumConditionScore = 0.9))
         )
-        val unavailableCandidate = equipment(type = EquipmentType.MONITOR, conditionScore = 0.5)
         every { allocationRepository.findById(allocationId) } returns pending
-        every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(unavailableCandidate)
+        every { equipmentRepository.findAvailableWithMinConditionScore(0.9) } returns emptyList()
         every { allocationRepository.save(any()) } answers { firstArg() }
 
         // when
@@ -75,7 +74,7 @@ class AllocationProcessorTest {
 
         // then
         verify(exactly = 0) { equipmentRepository.saveAll(any()) }
-        verify(exactly = 0) { equipmentRepository.findByIdsForUpdate(any()) }
+        verify(exactly = 0) { equipmentRepository.findByIdsForUpdate(any(), any()) }
         verify {
             allocationRepository.save(match {
                 it.id == allocationId &&
@@ -96,8 +95,8 @@ class AllocationProcessorTest {
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, minimumConditionScore = 0.8))
         )
         every { allocationRepository.findById(allocationId) } returns pending
-        every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(candidateEquipment)
-        every { equipmentRepository.findByIdsForUpdate(listOf(candidateEquipment.id)) } returns emptyList()
+        every { equipmentRepository.findAvailableWithMinConditionScore(0.8) } returns listOf(candidateEquipment)
+        every { equipmentRepository.findByIdsForUpdate(listOf(candidateEquipment.id), 0.8) } returns emptyList()
 
         // when / then
         assertThrows(com.tequipy.challenge.domain.AllocationLockContentionException::class.java) {
@@ -119,9 +118,9 @@ class AllocationProcessorTest {
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 2, minimumConditionScore = 0.8))
         )
         every { allocationRepository.findById(allocationId) } returns pending
-        every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(candidate1, candidate2)
+        every { equipmentRepository.findAvailableWithMinConditionScore(0.8) } returns listOf(candidate1, candidate2)
         // Only one of the two candidates could be locked — partial contention
-        every { equipmentRepository.findByIdsForUpdate(any()) } returns listOf(candidate1)
+        every { equipmentRepository.findByIdsForUpdate(any(), 0.8) } returns listOf(candidate1)
 
         // when / then
         assertThrows(com.tequipy.challenge.domain.AllocationLockContentionException::class.java) {
@@ -142,8 +141,8 @@ class AllocationProcessorTest {
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, minimumConditionScore = 0.8))
         )
         every { allocationRepository.findById(allocationId) } returns pending
-        every { equipmentRepository.findByState(EquipmentState.AVAILABLE) } returns listOf(selectedEquipment)
-        every { equipmentRepository.findByIdsForUpdate(listOf(selectedEquipment.id)) } returns listOf(selectedEquipment)
+        every { equipmentRepository.findAvailableWithMinConditionScore(0.8) } returns listOf(selectedEquipment)
+        every { equipmentRepository.findByIdsForUpdate(listOf(selectedEquipment.id), 0.8) } returns listOf(selectedEquipment)
         every { equipmentRepository.saveAll(any()) } answers { firstArg() }
         every { allocationRepository.save(any()) } answers { firstArg() }
 

@@ -14,7 +14,8 @@ class AllocationRequestEntityMapper {
         employeeId = entity.employeeId,
         state = entity.state,
         policy = entity.policy.map(::toDomainRequirement),
-        allocatedEquipmentIds = entity.allocatedEquipmentIds
+        allocatedEquipmentIds = entity.allocatedEquipmentIds,
+        idempotencyKey = entity.idempotencyKey
     )
 
     fun toEntity(domain: AllocationRequest): AllocationRequestEntity = AllocationRequestEntity(
@@ -22,7 +23,8 @@ class AllocationRequestEntityMapper {
         employeeId = domain.employeeId,
         state = domain.state,
         policy = domain.policy.map(::toEntityRequirement),
-        allocatedEquipmentIds = domain.allocatedEquipmentIds
+        allocatedEquipmentIds = domain.allocatedEquipmentIds,
+        idempotencyKey = domain.idempotencyKey
     )
 
     private fun toDomainRequirement(requirement: EquipmentPolicyRequirementEmbeddable) = EquipmentPolicyRequirement(
