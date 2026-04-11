@@ -33,6 +33,7 @@ dependencies {
     testImplementation("org.testcontainers:postgresql:1.19.6")
     testImplementation("org.testcontainers:junit-jupiter:1.19.6")
     testImplementation("org.testcontainers:rabbitmq:1.19.6")
+    testImplementation("org.awaitility:awaitility:4.2.2")
 }
 
 tasks.withType<KotlinCompile> {
