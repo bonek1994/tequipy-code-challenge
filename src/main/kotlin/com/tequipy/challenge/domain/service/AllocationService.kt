@@ -11,6 +11,7 @@ import com.tequipy.challenge.domain.port.`in`.AllocationUseCase
 import com.tequipy.challenge.domain.port.out.AllocationEventPublisher
 import com.tequipy.challenge.domain.port.out.AllocationRepository
 import com.tequipy.challenge.domain.port.out.EquipmentRepository
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -22,6 +23,8 @@ class AllocationService(
     private val equipmentRepository: EquipmentRepository,
     private val allocationEventPublisher: AllocationEventPublisher
 ) : AllocationUseCase {
+
+    private val logger = LoggerFactory.getLogger(javaClass)
 
     override fun createAllocation(
         policy: List<EquipmentPolicyRequirement>
@@ -36,6 +39,7 @@ class AllocationService(
             throw BadRequestException("minimumConditionScore must be between 0.0 and 1.0")
         }
 
+        logger.info("Creating allocation with {} policy requirement(s)", policy.size)
         val allocation = allocationRepository.save(
             AllocationRequest(
                 id = UUID.randomUUID(),
@@ -44,6 +48,7 @@ class AllocationService(
                 allocatedEquipmentIds = emptyList()
             )
         )
+        logger.info("Allocation created: id={}", allocation.id)
 
         allocationEventPublisher.publishAllocationCreated(allocation)
         return allocation
@@ -61,10 +66,13 @@ class AllocationService(
             throw ConflictException("Only allocated requests can be confirmed")
         }
 
+        logger.info("Confirming allocation: id={}", id)
         val equipments = equipmentRepository.findByIds(allocation.allocatedEquipmentIds)
         equipmentRepository.saveAll(equipments.map { it.copy(state = EquipmentState.ASSIGNED) })
 
-        return allocationRepository.save(allocation.copy(state = AllocationState.CONFIRMED))
+        val confirmed = allocationRepository.save(allocation.copy(state = AllocationState.CONFIRMED))
+        logger.info("Allocation confirmed: id={}", id)
+        return confirmed
     }
 
     override fun cancelAllocation(id: UUID): AllocationRequest {
@@ -73,6 +81,7 @@ class AllocationService(
             throw ConflictException("Only pending, allocated or failed requests can be cancelled")
         }
 
+        logger.info("Cancelling allocation: id={}", id)
         if (allocation.allocatedEquipmentIds.isNotEmpty()) {
             val equipments = equipmentRepository.findByIds(allocation.allocatedEquipmentIds)
             equipmentRepository.saveAll(
@@ -82,12 +91,14 @@ class AllocationService(
             )
         }
 
-        return allocationRepository.save(
+        val cancelled = allocationRepository.save(
             allocation.copy(
                 state = AllocationState.CANCELLED,
                 allocatedEquipmentIds = emptyList()
             )
         )
+        logger.info("Allocation cancelled: id={}", id)
+        return cancelled
     }
 }
 

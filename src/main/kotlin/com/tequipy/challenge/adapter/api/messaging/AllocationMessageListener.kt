@@ -5,6 +5,7 @@ import com.tequipy.challenge.domain.model.AllocationRequest
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.service.AllocationProcessor
+import org.slf4j.LoggerFactory
 import org.springframework.amqp.rabbit.annotation.RabbitListener
 import org.springframework.stereotype.Component
 
@@ -12,8 +13,11 @@ import org.springframework.stereotype.Component
 class AllocationMessageListener(
     private val allocationProcessor: AllocationProcessor
 ) {
+    private val logger = LoggerFactory.getLogger(javaClass)
+
     @RabbitListener(queues = [RabbitMQConfig.ALLOCATION_QUEUE])
     fun onAllocationCreated(message: AllocationMessage) {
+        logger.info("Received allocation message: id={}", message.id)
         val allocation = AllocationRequest(
             id = message.id,
             state = AllocationState.PENDING,
