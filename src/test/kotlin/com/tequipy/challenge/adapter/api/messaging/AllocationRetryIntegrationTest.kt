@@ -51,11 +51,12 @@ class AllocationRetryIntegrationTest {
             registry.add("spring.rabbitmq.port", rabbitmq::getAmqpPort)
             registry.add("spring.rabbitmq.username", rabbitmq::getAdminUsername)
             registry.add("spring.rabbitmq.password", rabbitmq::getAdminPassword)
+            registry.add(RabbitMQConfig.ALLOCATION_RETRY_ATTEMPTS_PROPERTY) { 1 }
         }
     }
 
     @Test
-    fun `message should be routed to DLQ after 12 consecutive AllocationLockContentionExceptions`() {
+    fun `message should be routed to DLQ after 1 consecutive AllocationLockContentionException`() {
         // given: processor always throws lock contention
         val allocationId = UUID.randomUUID()
         Mockito.doThrow(AllocationLockContentionException(allocationId))
@@ -70,10 +71,10 @@ class AllocationRetryIntegrationTest {
             .atMost(Duration.ofSeconds(60))
             .pollInterval(Duration.ofMillis(500))
             .until({ amqpTemplate.receiveAndConvert(RabbitMQConfig.ALLOCATION_DLQ) }, { it != null })
-        assertNotNull(dlqMessage, "Message should be routed to DLQ after 12 retry attempts")
+        assertNotNull(dlqMessage, "Message should be routed to DLQ after 1 retry attempt")
 
-        // verify that the processor was invoked exactly MAX_RETRY_ATTEMPTS times
-        Mockito.verify(processAllocationUseCase, Mockito.timeout(30_000).times(RabbitMQConfig.MAX_RETRY_ATTEMPTS))
+        // verify that the processor was invoked exactly once
+        Mockito.verify(processAllocationUseCase, Mockito.timeout(30_000).times(1))
             .processAllocation(any())
     }
 }

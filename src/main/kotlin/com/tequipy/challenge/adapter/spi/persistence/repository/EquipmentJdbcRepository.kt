@@ -22,7 +22,9 @@ class EquipmentJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
             state = EquipmentState.valueOf(rs.getString("state")),
             conditionScore = rs.getDouble("condition_score"),
             purchaseDate = rs.getDate("purchase_date").toLocalDate(),
-            retiredReason = rs.getString("retired_reason")
+            retiredReason = rs.getString("retired_reason"),
+            createdAt = rs.getTimestamp("created_at").toInstant(),
+            updatedAt = rs.getTimestamp("updated_at").toInstant()
         )
     }
 
@@ -38,17 +40,17 @@ class EquipmentJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
                 state = EXCLUDED.state,
                 condition_score = EXCLUDED.condition_score,
                 purchase_date = EXCLUDED.purchase_date,
-                retired_reason = EXCLUDED.retired_reason
+                retired_reason = EXCLUDED.retired_reason,
+                updated_at = CURRENT_TIMESTAMP
             """.trimIndent(),
             entity.id, entity.type.name, entity.brand, entity.model, entity.state.name,
             entity.conditionScore, Date.valueOf(entity.purchaseDate), entity.retiredReason
         )
-        return entity
+        return findById(entity.id) ?: entity
     }
 
     fun saveAll(entities: List<EquipmentEntity>): List<EquipmentEntity> {
-        entities.forEach { save(it) }
-        return entities
+        return entities.map { save(it) }
     }
 
     fun findById(id: UUID): EquipmentEntity? {
@@ -103,6 +105,6 @@ class EquipmentJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
             Long::class.java,
             id
         )
-        return (count ?: 0L) > 0L
+        return count > 0L
     }
 }

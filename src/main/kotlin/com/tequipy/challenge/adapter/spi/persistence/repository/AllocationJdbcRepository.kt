@@ -19,7 +19,9 @@ class AllocationJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
             state = AllocationState.valueOf(rs.getString("state")),
             policy = emptyList(),
             allocatedEquipmentIds = emptyList(),
-            idempotencyKey = rs.getObject("idempotency_key", UUID::class.java)
+            idempotencyKey = rs.getObject("idempotency_key", UUID::class.java),
+            createdAt = rs.getTimestamp("created_at").toInstant(),
+            updatedAt = rs.getTimestamp("updated_at").toInstant()
         )
     }
 
@@ -39,7 +41,8 @@ class AllocationJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
             INSERT INTO allocations (id, state, idempotency_key)
             VALUES (?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
-                state = EXCLUDED.state
+                state = EXCLUDED.state,
+                updated_at = CURRENT_TIMESTAMP
             """.trimIndent(),
             entity.id, entity.state.name, entity.idempotencyKey
         )
@@ -70,7 +73,7 @@ class AllocationJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
             )
         }
 
-        return entity
+        return findById(entity.id) ?: entity
     }
 
     fun findById(id: UUID): AllocationEntity? {
@@ -127,7 +130,7 @@ class AllocationJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
 
     fun completePending(id: UUID, state: AllocationState, allocatedEquipmentIds: List<UUID>): AllocationEntity? {
         val updatedRows = jdbcTemplate.update(
-            "UPDATE allocations SET state = ? WHERE id = ? AND state = ?",
+            "UPDATE allocations SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND state = ?",
             state.name,
             id,
             AllocationState.PENDING.name

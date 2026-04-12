@@ -10,6 +10,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate
 import org.springframework.stereotype.Component
 import org.springframework.transaction.support.TransactionSynchronization
 import org.springframework.transaction.support.TransactionSynchronizationManager
+import java.time.Instant
 import java.util.UUID
 
 @Component
@@ -31,7 +32,8 @@ class RabbitMQAllocationEventPublisher(
                         minimumConditionScore = req.minimumConditionScore,
                         preferredBrand = req.preferredBrand
                     )
-                }
+                },
+                timestamp = Instant.now()
             )
             rabbitTemplate.convertAndSend(RabbitMQConfig.ALLOCATION_QUEUE, message)
             logger.debug { "Allocation created event published: id=${allocation.id}" }
@@ -46,7 +48,8 @@ class RabbitMQAllocationEventPublisher(
                 AllocationProcessedMessage(
                     id = allocationId,
                     success = success,
-                    allocatedEquipmentIds = allocatedEquipmentIds
+                    allocatedEquipmentIds = allocatedEquipmentIds,
+                    timestamp = Instant.now()
                 )
             )
             logger.debug { "Allocation processed event published: id=$allocationId, success=$success" }
