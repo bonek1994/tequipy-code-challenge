@@ -62,4 +62,15 @@ class ManualAcknowledgementInterceptorTest {
 
         verify(exactly = 0) { channel.basicAck(any(), any()) }
     }
+
+    @Test
+    fun `should not call basicNack when channel is closed and listener throws`() {
+        val channel = mockk<Channel>(relaxed = true)
+        every { channel.isOpen } returns false
+        val invocation = buildInvocation(channel, deliveryTag = 1L) { throw RuntimeException("processing failed") }
+
+        assertThrows<RuntimeException> { interceptor.invoke(invocation) }
+
+        verify(exactly = 0) { channel.basicNack(any(), any(), any()) }
+    }
 }
