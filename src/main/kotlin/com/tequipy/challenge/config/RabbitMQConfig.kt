@@ -10,6 +10,7 @@ import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory
 import org.springframework.amqp.rabbit.connection.ConnectionFactory
 import org.springframework.amqp.rabbit.core.RabbitTemplate
+import org.springframework.amqp.core.AcknowledgeMode
 import org.springframework.amqp.rabbit.retry.RepublishMessageRecoverer
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter
 import org.springframework.context.annotation.Bean
@@ -75,14 +76,19 @@ class RabbitMQConfig {
     }
 
     @Bean
+    fun manualAcknowledgementInterceptor(): ManualAcknowledgementInterceptor = ManualAcknowledgementInterceptor()
+
+    @Bean
     fun rabbitListenerContainerFactory(
         connectionFactory: ConnectionFactory,
+        manualAcknowledgementInterceptor: ManualAcknowledgementInterceptor,
         allocationRetryInterceptor: RetryOperationsInterceptor,
         jsonMessageConverter: Jackson2JsonMessageConverter
     ): SimpleRabbitListenerContainerFactory {
         val factory = SimpleRabbitListenerContainerFactory()
         factory.setConnectionFactory(connectionFactory)
-        factory.setAdviceChain(allocationRetryInterceptor)
+        factory.setAcknowledgeMode(AcknowledgeMode.MANUAL)
+        factory.setAdviceChain(manualAcknowledgementInterceptor, allocationRetryInterceptor)
         factory.setMessageConverter(jsonMessageConverter)
         return factory
     }
