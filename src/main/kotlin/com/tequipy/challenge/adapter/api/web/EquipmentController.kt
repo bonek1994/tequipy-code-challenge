@@ -5,7 +5,9 @@ import com.tequipy.challenge.adapter.api.web.dto.EquipmentResponse
 import com.tequipy.challenge.adapter.api.web.dto.RetireEquipmentRequest
 import com.tequipy.challenge.adapter.api.web.mapper.EquipmentMapper
 import com.tequipy.challenge.domain.model.EquipmentState
-import com.tequipy.challenge.domain.port.`in`.EquipmentUseCase
+import com.tequipy.challenge.domain.port.api.ListEquipmentUseCase
+import com.tequipy.challenge.domain.port.api.RegisterEquipmentUseCase
+import com.tequipy.challenge.domain.port.api.RetireEquipmentUseCase
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.media.ArraySchema
@@ -24,7 +26,9 @@ import java.util.UUID
 @RequestMapping("/equipments")
 @Tag(name = "Equipments", description = "Manage equipment inventory")
 class EquipmentController(
-    private val equipmentUseCase: EquipmentUseCase,
+    private val registerEquipmentUseCase: RegisterEquipmentUseCase,
+    private val listEquipmentUseCase: ListEquipmentUseCase,
+    private val retireEquipmentUseCase: RetireEquipmentUseCase,
     private val equipmentMapper: EquipmentMapper
 ) {
 
@@ -37,7 +41,7 @@ class EquipmentController(
     )
     @PostMapping
     fun createEquipment(@Valid @RequestBody request: EquipmentRequest): ResponseEntity<EquipmentResponse> {
-        val equipment = equipmentUseCase.registerEquipment(
+        val equipment = registerEquipmentUseCase.registerEquipment(
             type = request.type,
             brand = request.brand,
             model = request.model,
@@ -56,7 +60,7 @@ class EquipmentController(
     fun getAllEquipment(
         @Parameter(description = "Filter by equipment state") @RequestParam(required = false) state: EquipmentState?
     ): ResponseEntity<List<EquipmentResponse>> {
-        val equipment = equipmentUseCase.listEquipment(state)
+        val equipment = listEquipmentUseCase.listEquipment(state)
         return ResponseEntity.ok(equipmentMapper.toResponseList(equipment))
     }
 
@@ -76,7 +80,7 @@ class EquipmentController(
         @PathVariable id: UUID,
         @Valid @RequestBody request: RetireEquipmentRequest
     ): ResponseEntity<EquipmentResponse> {
-        val equipment = equipmentUseCase.retireEquipment(
+        val equipment = retireEquipmentUseCase.retireEquipment(
             id = id,
             reason = request.reason
         )

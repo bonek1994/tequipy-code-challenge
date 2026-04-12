@@ -4,8 +4,11 @@ import com.tequipy.challenge.adapter.api.web.dto.AllocationResponse
 import com.tequipy.challenge.adapter.api.web.dto.CreateAllocationRequest
 import com.tequipy.challenge.adapter.api.web.mapper.AllocationMapper
 import com.tequipy.challenge.adapter.api.web.mapper.EquipmentMapper
-import com.tequipy.challenge.domain.port.`in`.AllocationUseCase
-import com.tequipy.challenge.domain.port.`in`.EquipmentUseCase
+import com.tequipy.challenge.domain.port.api.CancelAllocationUseCase
+import com.tequipy.challenge.domain.port.api.ConfirmAllocationUseCase
+import com.tequipy.challenge.domain.port.api.CreateAllocationUseCase
+import com.tequipy.challenge.domain.port.api.GetAllocationUseCase
+import com.tequipy.challenge.domain.port.api.GetEquipmentUseCase
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.media.Content
 import io.swagger.v3.oas.annotations.media.Schema
@@ -27,8 +30,11 @@ import java.util.UUID
 @RequestMapping("/allocations")
 @Tag(name = "Allocations", description = "Manage equipment allocation requests")
 class AllocationController(
-    private val allocationUseCase: AllocationUseCase,
-    private val equipmentUseCase: EquipmentUseCase,
+    private val createAllocationUseCase: CreateAllocationUseCase,
+    private val getAllocationUseCase: GetAllocationUseCase,
+    private val confirmAllocationUseCase: ConfirmAllocationUseCase,
+    private val cancelAllocationUseCase: CancelAllocationUseCase,
+    private val getEquipmentUseCase: GetEquipmentUseCase,
     private val allocationMapper: AllocationMapper,
     private val equipmentMapper: EquipmentMapper
 ) {
@@ -46,7 +52,7 @@ class AllocationController(
     )
     @PostMapping
     fun createAllocation(@Valid @RequestBody request: CreateAllocationRequest): ResponseEntity<AllocationResponse> {
-        val allocation = allocationUseCase.createAllocation(
+        val allocation = createAllocationUseCase.createAllocation(
             policy = request.policy.map(allocationMapper::toDomain)
         )
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(toResponse(allocation.id))
@@ -78,7 +84,7 @@ class AllocationController(
     )
     @PostMapping("/{id}/confirm")
     fun confirmAllocation(@PathVariable id: UUID): ResponseEntity<AllocationResponse> {
-        allocationUseCase.confirmAllocation(id)
+        confirmAllocationUseCase.confirmAllocation(id)
         return ResponseEntity.ok(toResponse(id))
     }
 
@@ -96,13 +102,13 @@ class AllocationController(
     )
     @PostMapping("/{id}/cancel")
     fun cancelAllocation(@PathVariable id: UUID): ResponseEntity<AllocationResponse> {
-        allocationUseCase.cancelAllocation(id)
+        cancelAllocationUseCase.cancelAllocation(id)
         return ResponseEntity.ok(toResponse(id))
     }
 
     private fun toResponse(id: UUID): AllocationResponse {
-        val allocation = allocationUseCase.getAllocation(id)
-        val equipments = allocation.allocatedEquipmentIds.map(equipmentUseCase::getEquipment).map(equipmentMapper::toResponse)
+        val allocation = getAllocationUseCase.getAllocation(id)
+        val equipments = allocation.allocatedEquipmentIds.map(getEquipmentUseCase::getEquipment).map(equipmentMapper::toResponse)
         return allocationMapper.toResponse(allocation, equipments)
     }
 }

@@ -3,7 +3,7 @@ package com.tequipy.challenge.adapter.api.messaging
 import com.tequipy.challenge.domain.model.EquipmentType
 import java.util.UUID
 
-data class AllocationMessage(
+data class AllocationRequestedMessage(
     val id: UUID,
     val policy: List<PolicyRequirementMessage>
 ) {
@@ -14,3 +14,10 @@ data class AllocationMessage(
         val preferredBrand: String? = null
     )
 }
+
+data class AllocationProcessedMessage(
+    val id: UUID,
+    val success: Boolean,
+    val allocatedEquipmentIds: List<UUID> = emptyList()
+)
+

@@ -3,7 +3,8 @@ package com.tequipy.challenge.adapter.spi.persistence.adapter
 import com.tequipy.challenge.adapter.spi.persistence.mapper.AllocationRequestEntityMapper
 import com.tequipy.challenge.adapter.spi.persistence.repository.AllocationRequestJdbcRepository
 import com.tequipy.challenge.domain.model.AllocationRequest
-import com.tequipy.challenge.domain.port.out.AllocationRepository
+import com.tequipy.challenge.domain.model.AllocationState
+import com.tequipy.challenge.domain.port.spi.AllocationRepository
 import org.springframework.stereotype.Component
 import java.util.UUID
 
@@ -24,5 +25,9 @@ class AllocationPersistenceAdapter(
 
     override fun findByIdempotencyKey(key: UUID): AllocationRequest? {
         return jdbcRepository.findByIdempotencyKey(key)?.let(mapper::toDomain)
+    }
+
+    override fun completePending(id: UUID, state: AllocationState, allocatedEquipmentIds: List<UUID>): AllocationRequest? {
+        return jdbcRepository.completePending(id, state, allocatedEquipmentIds)?.let(mapper::toDomain)
     }
 }

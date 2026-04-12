@@ -23,6 +23,7 @@ class RabbitMQConfig {
 
     companion object {
         const val ALLOCATION_QUEUE = "allocation.queue"
+        const val ALLOCATION_RESULT_QUEUE = "allocation.result.queue"
         const val ALLOCATION_DLQ = "allocation.dlq"
         const val ALLOCATION_DLX = "allocation.dlx"
         const val MAX_RETRY_ATTEMPTS = 12
@@ -33,6 +34,9 @@ class RabbitMQConfig {
         .withArgument("x-dead-letter-exchange", ALLOCATION_DLX)
         .withArgument("x-dead-letter-routing-key", ALLOCATION_DLQ)
         .build()
+
+    @Bean
+    fun allocationResultQueue(): Queue = QueueBuilder.durable(ALLOCATION_RESULT_QUEUE).build()
 
     @Bean
     fun allocationDlq(): Queue = QueueBuilder.durable(ALLOCATION_DLQ).build()

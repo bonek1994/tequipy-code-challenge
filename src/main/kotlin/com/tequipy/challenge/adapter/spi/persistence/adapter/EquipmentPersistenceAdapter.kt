@@ -5,7 +5,7 @@ import com.tequipy.challenge.adapter.spi.persistence.repository.EquipmentJdbcRep
 import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.model.EquipmentType
-import com.tequipy.challenge.domain.port.out.EquipmentRepository
+import com.tequipy.challenge.domain.port.spi.EquipmentRepository
 import org.springframework.stereotype.Component
 import java.util.UUID
 

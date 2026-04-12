@@ -2,7 +2,7 @@ package com.tequipy.challenge.adapter.api.messaging
 
 import com.tequipy.challenge.config.RabbitMQConfig
 import com.tequipy.challenge.domain.AllocationLockContentionException
-import com.tequipy.challenge.domain.service.AllocationProcessor
+import com.tequipy.challenge.domain.port.api.ProcessAllocationUseCase
 import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
@@ -26,7 +26,7 @@ import java.util.UUID
 class AllocationRetryIntegrationTest {
 
     @MockBean
-    private lateinit var allocationProcessor: AllocationProcessor
+    private lateinit var processAllocationUseCase: ProcessAllocationUseCase
 
     @Autowired
     private lateinit var amqpTemplate: AmqpTemplate
@@ -59,10 +59,10 @@ class AllocationRetryIntegrationTest {
         // given: processor always throws lock contention
         val allocationId = UUID.randomUUID()
         Mockito.doThrow(AllocationLockContentionException(allocationId))
-            .`when`(allocationProcessor).processAllocation(any())
+            .`when`(processAllocationUseCase).processAllocation(any())
 
-        // when: send a typed AllocationMessage object directly to the allocation queue
-        val message = AllocationMessage(id = allocationId, policy = emptyList())
+        // when: send a typed AllocationRequestedMessage object directly to the allocation queue
+        val message = AllocationRequestedMessage(id = allocationId, policy = emptyList())
         amqpTemplate.convertAndSend(RabbitMQConfig.ALLOCATION_QUEUE, message)
 
         // then: message should appear in DLQ after retry exhaustion
@@ -73,7 +73,7 @@ class AllocationRetryIntegrationTest {
         assertNotNull(dlqMessage, "Message should be routed to DLQ after 12 retry attempts")
 
         // verify that the processor was invoked exactly MAX_RETRY_ATTEMPTS times
-        Mockito.verify(allocationProcessor, Mockito.timeout(30_000).times(RabbitMQConfig.MAX_RETRY_ATTEMPTS))
+        Mockito.verify(processAllocationUseCase, Mockito.timeout(30_000).times(RabbitMQConfig.MAX_RETRY_ATTEMPTS))
             .processAllocation(any())
     }
 }

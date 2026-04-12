@@ -1,9 +1,8 @@
 package com.tequipy.challenge.adapter.api.messaging
 
-import com.tequipy.challenge.domain.model.AllocationRequest
-import com.tequipy.challenge.domain.model.AllocationState
+import com.tequipy.challenge.domain.port.api.ProcessAllocationCommand
+import com.tequipy.challenge.domain.port.api.ProcessAllocationUseCase
 import com.tequipy.challenge.domain.model.EquipmentType
-import com.tequipy.challenge.domain.service.AllocationProcessor
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.jupiter.api.Test
@@ -11,17 +10,17 @@ import java.util.UUID
 
 class AllocationMessageListenerTest {
 
-    private val allocationProcessor: AllocationProcessor = mockk(relaxed = true)
-    private val listener = AllocationMessageListener(allocationProcessor)
+    private val processAllocationUseCase: ProcessAllocationUseCase = mockk(relaxed = true)
+    private val listener = AllocationMessageListener(processAllocationUseCase)
 
     @Test
     fun `onAllocationCreated should invoke processor with allocation built from message`() {
         // given
         val allocationId = UUID.randomUUID()
-        val message = AllocationMessage(
+        val message = AllocationRequestedMessage(
             id = allocationId,
             policy = listOf(
-                AllocationMessage.PolicyRequirementMessage(type = EquipmentType.MONITOR, quantity = 1)
+                AllocationRequestedMessage.PolicyRequirementMessage(type = EquipmentType.MONITOR, quantity = 1)
             )
         )
 
@@ -30,11 +29,10 @@ class AllocationMessageListenerTest {
 
         // then
         verify {
-            allocationProcessor.processAllocation(match { allocation: AllocationRequest ->
-                allocation.id == allocationId &&
-                    allocation.state == AllocationState.PENDING &&
-                    allocation.policy.size == 1 &&
-                    allocation.policy.single().type == EquipmentType.MONITOR
+            processAllocationUseCase.processAllocation(match { command: ProcessAllocationCommand ->
+                command.allocationId == allocationId &&
+                    command.policy.size == 1 &&
+                    command.policy.single().type == EquipmentType.MONITOR
             })
         }
     }

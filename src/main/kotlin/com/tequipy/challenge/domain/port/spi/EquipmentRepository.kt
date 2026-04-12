@@ -1,4 +1,4 @@
-package com.tequipy.challenge.domain.port.out
+package com.tequipy.challenge.domain.port.spi
 
 import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentState

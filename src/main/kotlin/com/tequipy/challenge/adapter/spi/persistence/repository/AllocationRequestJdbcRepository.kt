@@ -124,4 +124,30 @@ class AllocationRequestJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
 
         return allocation.copy(policy = policy, allocatedEquipmentIds = equipmentIds)
     }
+
+    fun completePending(id: UUID, state: AllocationState, allocatedEquipmentIds: List<UUID>): AllocationRequestEntity? {
+        val updatedRows = jdbcTemplate.update(
+            "UPDATE allocation_requests SET state = ? WHERE id = ? AND state = ?",
+            state.name,
+            id,
+            AllocationState.PENDING.name
+        )
+        if (updatedRows == 0) {
+            return null
+        }
+
+        jdbcTemplate.update(
+            "DELETE FROM allocation_equipment_ids WHERE allocation_request_id = ?",
+            id
+        )
+        allocatedEquipmentIds.forEach { equipmentId ->
+            jdbcTemplate.update(
+                "INSERT INTO allocation_equipment_ids (allocation_request_id, equipment_id) VALUES (?, ?)",
+                id,
+                equipmentId
+            )
+        }
+
+        return findById(id)
+    }
 }

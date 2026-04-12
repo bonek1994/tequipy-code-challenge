@@ -1,13 +1,11 @@
 package com.tequipy.challenge.domain.service
 
 import com.tequipy.challenge.domain.BadRequestException
-import com.tequipy.challenge.domain.ConflictException
-import com.tequipy.challenge.domain.NotFoundException
 import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.model.EquipmentType
-import com.tequipy.challenge.domain.port.`in`.EquipmentUseCase
-import com.tequipy.challenge.domain.port.out.EquipmentRepository
+import com.tequipy.challenge.domain.port.api.RegisterEquipmentUseCase
+import com.tequipy.challenge.domain.port.spi.EquipmentRepository
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -16,9 +14,9 @@ import java.util.UUID
 
 @Service
 @Transactional
-class EquipmentService(
+class RegisterEquipmentService(
     private val equipmentRepository: EquipmentRepository
-) : EquipmentUseCase {
+) : RegisterEquipmentUseCase {
 
     private val logger = KotlinLogging.logger {}
 
@@ -51,38 +49,5 @@ class EquipmentService(
         logger.info { "Equipment registered: id=${saved.id}" }
         return saved
     }
-
-    @Transactional(readOnly = true)
-    override fun getEquipment(id: UUID): Equipment {
-        return equipmentRepository.findById(id)
-            ?: throw NotFoundException("Equipment not found with id: $id")
-    }
-
-    @Transactional(readOnly = true)
-    override fun listEquipment(state: EquipmentState?): List<Equipment> {
-        return if (state == null) equipmentRepository.findAll() else equipmentRepository.findByState(state)
-    }
-
-    override fun retireEquipment(id: UUID, reason: String): Equipment {
-        if (reason.isBlank()) {
-            throw BadRequestException("Retirement reason must not be blank")
-        }
-
-        val equipment = equipmentRepository.findById(id)
-            ?: throw NotFoundException("Equipment not found with id: $id")
-
-        if (equipment.state != EquipmentState.AVAILABLE) {
-            throw ConflictException("Only available equipment can be retired")
-        }
-
-        logger.info { "Retiring equipment: id=$id" }
-        val retired = equipmentRepository.save(
-            equipment.copy(
-                state = EquipmentState.RETIRED,
-                retiredReason = reason
-            )
-        )
-        logger.info { "Equipment retired: id=${retired.id}" }
-        return retired
-    }
 }
+
