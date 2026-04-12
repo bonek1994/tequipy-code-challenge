@@ -5,9 +5,9 @@ import com.tequipy.challenge.domain.model.AllocationProcessingState
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentType
 import com.tequipy.challenge.domain.port.api.ProcessAllocationCommand
+import com.tequipy.challenge.domain.port.spi.InventoryAllocationPort
 import com.tequipy.challenge.domain.port.spi.AllocationEventPublisher
 import com.tequipy.challenge.domain.port.spi.AllocationProcessingRepository
-import com.tequipy.challenge.domain.port.spi.InventoryReservationPort
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -17,10 +17,10 @@ import java.util.UUID
 
 class ProcessAllocationServiceTest {
 
-    private val inventoryReservationPort: InventoryReservationPort = mockk()
+    private val inventoryAllocationPort: InventoryAllocationPort = mockk()
     private val allocationProcessingRepository: AllocationProcessingRepository = mockk()
     private val allocationEventPublisher: AllocationEventPublisher = mockk(relaxed = true)
-    private val service = ProcessAllocationService(inventoryReservationPort, allocationProcessingRepository, allocationEventPublisher)
+    private val service = ProcessAllocationService(inventoryAllocationPort, allocationProcessingRepository, allocationEventPublisher)
 
     @Test
     fun `processAllocation should publish failure when no selection is possible`() {
@@ -30,13 +30,13 @@ class ProcessAllocationServiceTest {
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1, minimumConditionScore = 0.9))
         )
         every { allocationProcessingRepository.tryStart(allocationId) } returns true
-        every { inventoryReservationPort.reserveForAllocation(allocationId, any()) } returns null
+        every { inventoryAllocationPort.reserveForAllocation(allocationId, any()) } returns null
         every { allocationProcessingRepository.complete(allocationId, AllocationProcessingState.FAILED, emptyList()) } returns
             AllocationProcessingRecord(allocationId, AllocationProcessingState.FAILED)
 
         service.processAllocation(command)
 
-        verify { inventoryReservationPort.reserveForAllocation(allocationId, any()) }
+        verify { inventoryAllocationPort.reserveForAllocation(allocationId, any()) }
         verify { allocationEventPublisher.publishAllocationProcessed(allocationId, false, emptyList()) }
     }
 
@@ -49,7 +49,7 @@ class ProcessAllocationServiceTest {
         )
         every { allocationProcessingRepository.tryStart(allocationId) } returns true
         every {
-            inventoryReservationPort.reserveForAllocation(allocationId, any())
+            inventoryAllocationPort.reserveForAllocation(allocationId, any())
         } throws com.tequipy.challenge.domain.AllocationLockContentionException(allocationId)
 
         assertThrows(com.tequipy.challenge.domain.AllocationLockContentionException::class.java) {
@@ -67,7 +67,7 @@ class ProcessAllocationServiceTest {
         )
         every { allocationProcessingRepository.tryStart(allocationId) } returns true
         every {
-            inventoryReservationPort.reserveForAllocation(allocationId, any())
+            inventoryAllocationPort.reserveForAllocation(allocationId, any())
         } throws com.tequipy.challenge.domain.AllocationLockContentionException(allocationId)
 
         assertThrows(com.tequipy.challenge.domain.AllocationLockContentionException::class.java) {
@@ -85,7 +85,7 @@ class ProcessAllocationServiceTest {
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1, minimumConditionScore = 0.8))
         )
         every { allocationProcessingRepository.tryStart(allocationId) } returns true
-        every { inventoryReservationPort.reserveForAllocation(allocationId, any()) } returns listOf(selectedEquipmentId)
+        every { inventoryAllocationPort.reserveForAllocation(allocationId, any()) } returns listOf(selectedEquipmentId)
         every {
             allocationProcessingRepository.complete(
                 allocationId,
@@ -100,7 +100,7 @@ class ProcessAllocationServiceTest {
 
         service.processAllocation(command)
 
-        verify { inventoryReservationPort.reserveForAllocation(allocationId, any()) }
+        verify { inventoryAllocationPort.reserveForAllocation(allocationId, any()) }
         verify {
             allocationEventPublisher.publishAllocationProcessed(allocationId, true, listOf(selectedEquipmentId))
         }
@@ -124,7 +124,7 @@ class ProcessAllocationServiceTest {
 
         service.processAllocation(command)
 
-        verify(exactly = 0) { inventoryReservationPort.reserveForAllocation(any(), any()) }
+        verify(exactly = 0) { inventoryAllocationPort.reserveForAllocation(any(), any()) }
         verify { allocationEventPublisher.publishAllocationProcessed(allocationId, true, listOf(reservedEquipmentId)) }
     }
 

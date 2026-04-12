@@ -5,8 +5,8 @@ import com.tequipy.challenge.domain.model.AllocationRequest
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentType
+import com.tequipy.challenge.domain.port.spi.InventoryAllocationPort
 import com.tequipy.challenge.domain.port.spi.AllocationRepository
-import com.tequipy.challenge.domain.port.spi.InventoryReservationPort
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -17,8 +17,8 @@ import java.util.UUID
 
 class ConfirmAllocationServiceTest {
     private val allocationRepository: AllocationRepository = mockk()
-    private val inventoryReservationPort: InventoryReservationPort = mockk(relaxed = true)
-    private val service = ConfirmAllocationService(allocationRepository, inventoryReservationPort)
+    private val inventoryAllocationPort: InventoryAllocationPort = mockk(relaxed = true)
+    private val service = ConfirmAllocationService(allocationRepository, inventoryAllocationPort)
 
     @Test
     fun `confirmAllocation should move reserved equipment to assigned`() {
@@ -37,7 +37,7 @@ class ConfirmAllocationServiceTest {
         val result = service.confirmAllocation(allocationId)
 
         assertEquals(AllocationState.CONFIRMED, result.state)
-        verify { inventoryReservationPort.confirmReservedEquipment(listOf(equipmentId)) }
+        verify { inventoryAllocationPort.confirmReservedEquipment(listOf(equipmentId)) }
     }
 
     @Test

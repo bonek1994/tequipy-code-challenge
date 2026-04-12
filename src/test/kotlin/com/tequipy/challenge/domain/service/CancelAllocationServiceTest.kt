@@ -5,8 +5,8 @@ import com.tequipy.challenge.domain.model.AllocationRequest
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentType
+import com.tequipy.challenge.domain.port.spi.InventoryAllocationPort
 import com.tequipy.challenge.domain.port.spi.AllocationRepository
-import com.tequipy.challenge.domain.port.spi.InventoryReservationPort
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -17,8 +17,8 @@ import java.util.UUID
 
 class CancelAllocationServiceTest {
     private val allocationRepository: AllocationRepository = mockk()
-    private val inventoryReservationPort: InventoryReservationPort = mockk(relaxed = true)
-    private val service = CancelAllocationService(allocationRepository, inventoryReservationPort)
+    private val inventoryAllocationPort: InventoryAllocationPort = mockk(relaxed = true)
+    private val service = CancelAllocationService(allocationRepository, inventoryAllocationPort)
 
     @Test
     fun `cancelAllocation should release reserved equipment`() {
@@ -37,7 +37,7 @@ class CancelAllocationServiceTest {
         val result = service.cancelAllocation(allocationId)
 
         assertEquals(AllocationState.CANCELLED, result.state)
-        verify { inventoryReservationPort.releaseReservedEquipment(listOf(equipmentId)) }
+        verify { inventoryAllocationPort.releaseReservedEquipment(listOf(equipmentId)) }
     }
 
     @Test
@@ -56,7 +56,7 @@ class CancelAllocationServiceTest {
         val result = service.cancelAllocation(allocationId)
 
         assertEquals(AllocationState.CANCELLED, result.state)
-        verify(exactly = 0) { inventoryReservationPort.releaseReservedEquipment(any()) }
+        verify(exactly = 0) { inventoryAllocationPort.releaseReservedEquipment(any()) }
     }
 
     @Test
@@ -75,7 +75,7 @@ class CancelAllocationServiceTest {
         val result = service.cancelAllocation(allocationId)
 
         assertEquals(AllocationState.CANCELLED, result.state)
-        verify(exactly = 0) { inventoryReservationPort.releaseReservedEquipment(any()) }
+        verify(exactly = 0) { inventoryAllocationPort.releaseReservedEquipment(any()) }
     }
 
     @Test
@@ -109,7 +109,7 @@ class CancelAllocationServiceTest {
 
         service.cancelAllocation(allocationId)
 
-        verify { inventoryReservationPort.releaseReservedEquipment(listOf(equipmentId)) }
+        verify { inventoryAllocationPort.releaseReservedEquipment(listOf(equipmentId)) }
     }
 }
 

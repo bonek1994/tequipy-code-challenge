@@ -5,8 +5,8 @@ import com.tequipy.challenge.domain.NotFoundException
 import com.tequipy.challenge.domain.model.AllocationRequest
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.port.api.CancelAllocationUseCase
+import com.tequipy.challenge.domain.port.spi.InventoryAllocationPort
 import com.tequipy.challenge.domain.port.spi.AllocationRepository
-import com.tequipy.challenge.domain.port.spi.InventoryReservationPort
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -16,7 +16,7 @@ import java.util.UUID
 @Transactional
 class CancelAllocationService(
     private val allocationRepository: AllocationRepository,
-    private val inventoryReservationPort: InventoryReservationPort
+    private val inventoryAllocationPort: InventoryAllocationPort
 ) : CancelAllocationUseCase {
 
     private val logger = KotlinLogging.logger {}
@@ -29,7 +29,7 @@ class CancelAllocationService(
 
         logger.info { "Cancelling allocation: id=$id" }
         if (allocation.allocatedEquipmentIds.isNotEmpty()) {
-            inventoryReservationPort.releaseReservedEquipment(allocation.allocatedEquipmentIds)
+            inventoryAllocationPort.releaseReservedEquipment(allocation.allocatedEquipmentIds)
         }
 
         val cancelled = allocationRepository.save(
