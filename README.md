@@ -34,8 +34,8 @@ src/main/kotlin/com/tequipy/challenge/
 │   ├── event/               # Domain events
 │   ├── model/               # Core domain models and enums
 │   ├── port/
-│   │   ├── in/              # Use case interfaces
-│   │   └── out/             # Repository and event-publisher ports
+│   │   ├── api/             # Use case interfaces
+│   │   └── spi/             # Repository and event-publisher ports
 │   └── service/             # Business logic and allocation workflow
 ├── adapter/
 │   ├── api/
@@ -168,14 +168,19 @@ The actual HTTP API exposed by the application is:
 
 ## Allocation Processing
 
-Allocation creation publishes a message to the RabbitMQ `allocation.queue`. The listener:
+Allocation creation publishes a message to the RabbitMQ `allocation.queue`. The processing follows a two-step flow:
 
+**Step 1 – `AllocationMessageListener` (consumes `allocation.queue`):**
 1. receives the pending allocation message
 2. selects eligible `AVAILABLE` equipment using `AllocationAlgorithm`
 3. marks matching equipment as `RESERVED`
-4. changes the allocation state to `ALLOCATED`
+4. publishes the result to `allocation.result.queue`
 
-If no valid combination exists, the allocation is marked as `FAILED`. Lock contention during concurrent processing triggers automatic retries (up to 12 attempts); messages that exhaust all retries are moved to the dead-letter queue (`allocation.dlq`).
+**Step 2 – `AllocationProcessedMessageListener` (consumes `allocation.result.queue`):**
+1. receives the processing result
+2. transitions the allocation state to `ALLOCATED` on success, or `FAILED` if no valid combination was found
+
+Lock contention during concurrent processing triggers automatic retries (up to 12 attempts); messages that exhaust all retries are moved to the dead-letter queue (`allocation.dlq`).
 
 The algorithm:
 - applies hard constraints for type and minimum condition score
@@ -266,4 +271,4 @@ kubectl apply -f k8s/
 
 - Treat tests as the primary behavioral contract
 - Prefer updating tests alongside domain logic changes
-- Be careful when refactoring allocation flow: processing is triggered by the RabbitMQ message listener after transaction commit; `AllocationProcessor` is idempotent and only acts on allocations in `PENDING` state, so duplicate message delivery is handled safely
+- Be careful when refactoring allocation flow: processing is triggered by the RabbitMQ message listener; `ProcessAllocationService` uses `AllocationProcessingRepository` for idempotency, so duplicate message delivery is handled safely
