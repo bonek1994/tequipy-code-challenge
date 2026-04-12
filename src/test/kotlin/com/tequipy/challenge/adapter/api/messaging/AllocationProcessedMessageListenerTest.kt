@@ -1,6 +1,6 @@
 package com.tequipy.challenge.adapter.api.messaging
 
-import com.tequipy.challenge.domain.model.AllocationRequest
+import com.tequipy.challenge.domain.model.AllocationEntity
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentType
@@ -21,7 +21,7 @@ class AllocationProcessedMessageListenerTest {
         val allocationId = UUID.randomUUID()
         every {
             allocationRepository.completePending(allocationId, AllocationState.ALLOCATED, listOf(UUID.fromString("11111111-1111-1111-1111-111111111111")))
-        } returns AllocationRequest(
+        } returns AllocationEntity(
             id = allocationId,
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
             state = AllocationState.ALLOCATED,
@@ -61,4 +61,5 @@ class AllocationProcessedMessageListenerTest {
         verify { allocationRepository.completePending(allocationId, AllocationState.FAILED, emptyList()) }
     }
 }
+
 

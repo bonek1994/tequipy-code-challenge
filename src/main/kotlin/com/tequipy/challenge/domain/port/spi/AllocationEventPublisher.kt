@@ -1,10 +1,10 @@
 package com.tequipy.challenge.domain.port.spi
 
-import com.tequipy.challenge.domain.model.AllocationRequest
+import com.tequipy.challenge.domain.model.AllocationEntity
 import java.util.UUID
 
 interface AllocationEventPublisher {
-    fun publishAllocationCreated(allocation: AllocationRequest)
+    fun publishAllocationCreated(allocation: AllocationEntity)
 
     fun publishAllocationProcessed(
         allocationId: UUID,
@@ -12,3 +12,4 @@ interface AllocationEventPublisher {
         allocatedEquipmentIds: List<UUID> = emptyList()
     )
 }
+

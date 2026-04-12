@@ -11,18 +11,21 @@ Main capabilities:
 - create allocation requests based on equipment policy requirements
 - confirm or cancel allocations
 
-This is **not** an employee CRUD application. `employeeId` exists only as a UUID carried by allocation requests.
+This is **not** an employee CRUD application. `employeeId` only appears as a UUID carried by allocation requests/messages.
 
 ## Architecture
 
-The code follows a ports-and-adapters / hexagonal style:
+The code follows a ports-and-adapters / hexagonal style, but the actual package names in this repo are:
 
-- `adapter/in/web` - REST controllers, request/response DTOs, web mappers, exception handler
+- `adapter/api/web` - REST controllers, request/response DTOs, web mappers, exception handler
+- `adapter/api/messaging` - RabbitMQ listeners and message DTOs
+- `adapter/spi/persistence` - JDBC repositories, persistence adapters, entity mappers
+- `adapter/spi/messaging` - RabbitMQ publisher
 - `domain/model` - domain state and core models
-- `domain/service` - business rules and allocation workflow
-- `domain/port/in` - use case interfaces
-- `domain/port/out` - repository ports
-- `adapter/out/persistence` - JPA entities, Spring Data repositories, persistence adapters, entity mappers
+- `domain/command` - application command objects
+- `domain/service` - application services and business rules
+- `domain/port/api` - use case interfaces
+- `domain/port/spi` - repository / messaging / inventory ports
 - `config` - Spring configuration
 
 ## Trust order
@@ -30,12 +33,13 @@ The code follows a ports-and-adapters / hexagonal style:
 When documentation and code differ, trust sources in this order:
 
 1. tests in `src/test/kotlin`
-2. controllers and DTOs in `adapter/in/web`
-3. domain services in `domain/service`
-4. ports and persistence adapters
-5. `README.md`
+2. controllers and DTOs in `adapter/api/web`
+3. messaging adapters in `adapter/api/messaging`
+4. application/domain services in `domain/service`
+5. ports and persistence adapters
+6. `README.md`
 
-The historical README was partially outdated, so always verify behavior in code and tests before changing contracts.
+The historical README can lag behind the code, so always verify behavior in code and tests before changing contracts.
 
 ## Actual HTTP API
 
@@ -52,16 +56,34 @@ Do not assume `/api/...` prefixes.
 - `POST /allocations/{id}/confirm`
 - `POST /allocations/{id}/cancel`
 
+## Key ports and commands
+
+### Equipment use cases
+- `RegisterEquipmentUseCase`
+- `GetEquipmentUseCase`
+- `ListEquipmentUseCase`
+- `RetireEquipmentUseCase`
+
+### Allocation use cases
+- `CreateAllocationUseCase`
+- `GetAllocationUseCase`
+- `ConfirmAllocationUseCase`
+- `CancelAllocationUseCase`
+- `ProcessAllocationUseCase`
+
+### Command objects
+- `domain/command/ProcessAllocationCommand.kt` is the current command used by messaging/application flow.
+
 ## Core domain rules
 
 ### Equipment rules
-Implemented mainly in `domain/service/EquipmentService.kt`.
+Implemented mainly in `domain/service/RegisterEquipmentService.kt` and `domain/service/RetireEquipmentService.kt`.
 
-- New equipment starts in `EquipmentState.AVAILABLE`
+- new equipment starts in `EquipmentState.AVAILABLE`
 - `conditionScore` must be in `[0.0, 1.0]`
 - `brand` and `model` must not be blank
-- Equipment can be retired only when currently `AVAILABLE`
-- Retirement reason must not be blank
+- equipment can be retired only when currently `AVAILABLE`
+- retirement reason must not be blank
 
 ### Equipment states
 - `AVAILABLE`
@@ -70,15 +92,15 @@ Implemented mainly in `domain/service/EquipmentService.kt`.
 - `RETIRED`
 
 ### Allocation rules
-Implemented mainly in `domain/service/AllocationService.kt` and `domain/service/AllocationProcessor.kt`.
+Implemented mainly in `domain/service/CreateAllocationService.kt`, `domain/service/ProcessAllocationService.kt`, `domain/service/ConfirmAllocationService.kt`, and `domain/service/CancelAllocationService.kt`.
 
-- Allocation policy must not be empty
-- Each requirement must have `quantity > 0`
+- allocation policy must not be empty
+- each requirement must have `quantity > 0`
 - `minimumConditionScore`, if present, must be in `[0.0, 1.0]`
-- If matching equipment cannot be found, allocation becomes `FAILED`
-- Successful processing reserves selected equipment by moving it to `RESERVED`
-- Confirm moves reserved equipment to `ASSIGNED`
-- Cancel may release reserved equipment back to `AVAILABLE`
+- if matching equipment cannot be found, allocation becomes `FAILED`
+- successful processing reserves selected equipment by moving it to `RESERVED`
+- confirm moves reserved equipment to `ASSIGNED`
+- cancel may release reserved equipment back to `AVAILABLE`
 
 ### Allocation states
 - `PENDING`
@@ -87,17 +109,22 @@ Implemented mainly in `domain/service/AllocationService.kt` and `domain/service/
 - `CONFIRMED`
 - `CANCELLED`
 
-## Allocation processing caveat
+## Allocation processing flow
 
 Be careful around allocation execution flow.
 
-`AllocationService.createAllocation()` currently does both:
-- publishes `AllocationCreatedEvent`
-- directly calls `allocationProcessor.processAllocation(allocation.id)`
+Current flow is:
 
-`AllocationEventHandler` also listens after commit and calls `allocationProcessor.processAllocation(...)` again.
+1. `CreateAllocationService` validates policy, saves a `PENDING` allocation, and publishes the created message through `AllocationEventPublisher`.
+2. `RabbitMQAllocationEventPublisher` publishes `AllocationRequestedMessage` to `allocation.queue` **after transaction commit**.
+3. `AllocationMessageListener` maps `AllocationRequestedMessage` to `domain.command.ProcessAllocationCommand` and calls `ProcessAllocationUseCase`.
+4. `ProcessAllocationService` is idempotent through `AllocationProcessingRepository`, uses `InventoryAllocationPort` to select and reserve equipment, stores the result, and republishes the outcome.
+5. `AllocationProcessedMessageListener` applies the final `ALLOCATED` / `FAILED` state to the allocation row only if it is still `PENDING`.
 
-This is mostly safe because `AllocationProcessor` only acts on allocations in `PENDING`, but any refactor in this area must preserve idempotent behavior and avoid double-processing bugs.
+Important caveat:
+- duplicate allocation processing is expected and must remain safe
+- `AllocationLockContentionException` is used to trigger Rabbit retry and eventual DLQ routing
+- do not break idempotency in `ProcessAllocationUseCase` / `AllocationProcessingRepository`
 
 ## Allocation algorithm behavior
 
@@ -112,39 +139,55 @@ If you change allocation behavior, update algorithm tests and service/integratio
 
 ## Error handling contract
 
-`adapter/in/web/GlobalExceptionHandler.kt` maps exceptions as follows:
+`adapter/api/web/GlobalExceptionHandler.kt` maps exceptions as follows:
 - `BadRequestException` -> HTTP 400
 - `NotFoundException` -> HTTP 404
 - `ConflictException` -> HTTP 409
-- Bean validation errors -> HTTP 400
+- bean validation errors -> HTTP 400
 
 Preserve this behavior unless the task explicitly changes the API contract.
 
 ## Files to inspect before changes
 
 ### For equipment-related tasks
-- `src/main/kotlin/com/tequipy/challenge/adapter/in/web/EquipmentController.kt`
-- `src/main/kotlin/com/tequipy/challenge/domain/service/EquipmentService.kt`
-- `src/main/kotlin/com/tequipy/challenge/adapter/in/web/dto/EquipmentRequest.kt`
-- `src/main/kotlin/com/tequipy/challenge/adapter/in/web/dto/RetireEquipmentRequest.kt`
-- `src/test/kotlin/com/tequipy/challenge/adapter/in/web/EquipmentControllerIntegrationTest.kt`
-- `src/test/kotlin/com/tequipy/challenge/domain/service/EquipmentServiceTest.kt`
+- `src/main/kotlin/com/tequipy/challenge/adapter/api/web/EquipmentController.kt`
+- `src/main/kotlin/com/tequipy/challenge/domain/service/RegisterEquipmentService.kt`
+- `src/main/kotlin/com/tequipy/challenge/domain/service/GetEquipmentService.kt`
+- `src/main/kotlin/com/tequipy/challenge/domain/service/ListEquipmentService.kt`
+- `src/main/kotlin/com/tequipy/challenge/domain/service/RetireEquipmentService.kt`
+- `src/main/kotlin/com/tequipy/challenge/adapter/api/web/dto/EquipmentRequest.kt`
+- `src/main/kotlin/com/tequipy/challenge/adapter/api/web/dto/RetireEquipmentRequest.kt`
+- `src/test/kotlin/com/tequipy/challenge/adapter/api/web/EquipmentControllerIntegrationTest.kt`
+- `src/test/kotlin/com/tequipy/challenge/domain/service/RegisterEquipmentServiceTest.kt`
+- `src/test/kotlin/com/tequipy/challenge/domain/service/GetEquipmentServiceTest.kt`
+- `src/test/kotlin/com/tequipy/challenge/domain/service/ListEquipmentServiceTest.kt`
+- `src/test/kotlin/com/tequipy/challenge/domain/service/RetireEquipmentServiceTest.kt`
 
 ### For allocation-related tasks
-- `src/main/kotlin/com/tequipy/challenge/adapter/in/web/AllocationController.kt`
-- `src/main/kotlin/com/tequipy/challenge/domain/service/AllocationService.kt`
-- `src/main/kotlin/com/tequipy/challenge/domain/service/AllocationProcessor.kt`
-- `src/main/kotlin/com/tequipy/challenge/domain/service/AllocationEventHandler.kt`
+- `src/main/kotlin/com/tequipy/challenge/adapter/api/web/AllocationController.kt`
+- `src/main/kotlin/com/tequipy/challenge/adapter/api/messaging/AllocationMessageListener.kt`
+- `src/main/kotlin/com/tequipy/challenge/adapter/api/messaging/AllocationProcessedMessageListener.kt`
+- `src/main/kotlin/com/tequipy/challenge/domain/service/CreateAllocationService.kt`
+- `src/main/kotlin/com/tequipy/challenge/domain/service/ProcessAllocationService.kt`
+- `src/main/kotlin/com/tequipy/challenge/domain/service/ConfirmAllocationService.kt`
+- `src/main/kotlin/com/tequipy/challenge/domain/service/CancelAllocationService.kt`
 - `src/main/kotlin/com/tequipy/challenge/domain/service/AllocationAlgorithm.kt`
-- `src/test/kotlin/com/tequipy/challenge/adapter/in/web/AllocationControllerIntegrationTest.kt`
-- `src/test/kotlin/com/tequipy/challenge/domain/service/AllocationServiceTest.kt`
+- `src/main/kotlin/com/tequipy/challenge/domain/command/ProcessAllocationCommand.kt`
+- `src/test/kotlin/com/tequipy/challenge/adapter/api/web/AllocationControllerIntegrationTest.kt`
+- `src/test/kotlin/com/tequipy/challenge/adapter/api/messaging/AllocationMessageListenerTest.kt`
+- `src/test/kotlin/com/tequipy/challenge/adapter/api/messaging/AllocationRetryIntegrationTest.kt`
+- `src/test/kotlin/com/tequipy/challenge/domain/service/CreateAllocationServiceTest.kt`
+- `src/test/kotlin/com/tequipy/challenge/domain/service/ProcessAllocationServiceTest.kt`
+- `src/test/kotlin/com/tequipy/challenge/domain/service/ConfirmAllocationServiceTest.kt`
+- `src/test/kotlin/com/tequipy/challenge/domain/service/CancelAllocationServiceTest.kt`
 - `src/test/kotlin/com/tequipy/challenge/domain/service/AllocationAlgorithmTest.kt`
 
-### For persistence changes
-- `src/main/kotlin/com/tequipy/challenge/adapter/out/persistence/adapter/*`
-- `src/main/kotlin/com/tequipy/challenge/adapter/out/persistence/entity/*`
-- `src/main/kotlin/com/tequipy/challenge/adapter/out/persistence/mapper/*`
-- `src/main/kotlin/com/tequipy/challenge/adapter/out/persistence/repository/*`
+### For inventory / persistence changes
+- `src/main/kotlin/com/tequipy/challenge/domain/port/spi/InventoryAllocationPort.kt`
+- `src/main/kotlin/com/tequipy/challenge/domain/service/InventoryAllocationService.kt`
+- `src/main/kotlin/com/tequipy/challenge/adapter/spi/persistence/adapter/*`
+- `src/main/kotlin/com/tequipy/challenge/adapter/spi/persistence/repository/*`
+- `src/main/kotlin/com/tequipy/challenge/adapter/spi/messaging/RabbitMQAllocationEventPublisher.kt`
 
 ## Testing guidance
 
@@ -158,7 +201,7 @@ $env:JAVA_HOME = "C:\Program Files\Java\jdk-17"
 .\gradlew.bat cleanTest test --tests "com.tequipy.challenge.domain.service.*" --no-daemon
 ```
 
-Integration tests use Spring Boot + Testcontainers + PostgreSQL, so Docker availability may be required.
+Integration tests use Spring Boot + Testcontainers + PostgreSQL + RabbitMQ, so Docker availability may be required.
 
 ## Common pitfalls
 
@@ -167,5 +210,6 @@ Integration tests use Spring Boot + Testcontainers + PostgreSQL, so Docker avail
 - Do not assume there is an `Employee` aggregate in the codebase
 - Preserve enum states and state transition rules
 - Keep DTO validation annotations aligned with domain validation
+- Keep messaging idempotent; duplicate Rabbit deliveries are expected
 - Use tests as the behavioral contract
 

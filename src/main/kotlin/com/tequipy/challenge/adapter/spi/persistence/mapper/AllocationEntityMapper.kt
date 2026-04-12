@@ -1,15 +1,15 @@
 package com.tequipy.challenge.adapter.spi.persistence.mapper
 
-import com.tequipy.challenge.adapter.spi.persistence.entity.AllocationRequestEntity
+import com.tequipy.challenge.adapter.spi.persistence.entity.AllocationEntity as AllocationRowEntity
 import com.tequipy.challenge.adapter.spi.persistence.entity.EquipmentPolicyRequirementEmbeddable
-import com.tequipy.challenge.domain.model.AllocationRequest
+import com.tequipy.challenge.domain.model.AllocationEntity as AllocationDomainEntity
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import org.springframework.stereotype.Component
 
 @Component
-class AllocationRequestEntityMapper {
+class AllocationEntityMapper {
 
-    fun toDomain(entity: AllocationRequestEntity): AllocationRequest = AllocationRequest(
+    fun toDomain(entity: AllocationRowEntity): AllocationDomainEntity = AllocationDomainEntity(
         id = entity.id,
         state = entity.state,
         policy = entity.policy.map(::toDomainRequirement),
@@ -17,7 +17,7 @@ class AllocationRequestEntityMapper {
         idempotencyKey = entity.idempotencyKey
     )
 
-    fun toEntity(domain: AllocationRequest): AllocationRequestEntity = AllocationRequestEntity(
+    fun toEntity(domain: AllocationDomainEntity): AllocationRowEntity = AllocationRowEntity(
         id = domain.id,
         state = domain.state,
         policy = domain.policy.map(::toEntityRequirement),
@@ -39,3 +39,4 @@ class AllocationRequestEntityMapper {
         preferredBrand = requirement.preferredBrand
     )
 }
+

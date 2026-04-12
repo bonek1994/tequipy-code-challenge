@@ -3,7 +3,7 @@ package com.tequipy.challenge.adapter.spi.messaging
 import com.tequipy.challenge.adapter.api.messaging.AllocationProcessedMessage
 import com.tequipy.challenge.adapter.api.messaging.AllocationRequestedMessage
 import com.tequipy.challenge.config.RabbitMQConfig
-import com.tequipy.challenge.domain.model.AllocationRequest
+import com.tequipy.challenge.domain.model.AllocationEntity
 import com.tequipy.challenge.domain.port.spi.AllocationEventPublisher
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.amqp.rabbit.core.RabbitTemplate
@@ -19,7 +19,7 @@ class RabbitMQAllocationEventPublisher(
 
     private val logger = KotlinLogging.logger {}
 
-    override fun publishAllocationCreated(allocation: AllocationRequest) {
+    override fun publishAllocationCreated(allocation: AllocationEntity) {
         afterCommit {
             logger.debug { "Publishing allocation created event: id=${allocation.id}" }
             val message = AllocationRequestedMessage(

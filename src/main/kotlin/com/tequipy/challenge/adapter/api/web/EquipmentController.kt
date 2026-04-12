@@ -4,6 +4,8 @@ import com.tequipy.challenge.adapter.api.web.dto.EquipmentRequest
 import com.tequipy.challenge.adapter.api.web.dto.EquipmentResponse
 import com.tequipy.challenge.adapter.api.web.dto.RetireEquipmentRequest
 import com.tequipy.challenge.adapter.api.web.mapper.EquipmentMapper
+import com.tequipy.challenge.domain.command.RegisterEquipmentCommand
+import com.tequipy.challenge.domain.command.RetireEquipmentCommand
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.port.api.ListEquipmentUseCase
 import com.tequipy.challenge.domain.port.api.RegisterEquipmentUseCase
@@ -42,11 +44,13 @@ class EquipmentController(
     @PostMapping
     fun createEquipment(@Valid @RequestBody request: EquipmentRequest): ResponseEntity<EquipmentResponse> {
         val equipment = registerEquipmentUseCase.registerEquipment(
-            type = request.type,
-            brand = request.brand,
-            model = request.model,
-            conditionScore = request.conditionScore,
-            purchaseDate = request.purchaseDate
+            RegisterEquipmentCommand(
+                type = request.type,
+                brand = request.brand,
+                model = request.model,
+                conditionScore = request.conditionScore,
+                purchaseDate = request.purchaseDate
+            )
         )
         return ResponseEntity.status(HttpStatus.CREATED).body(equipmentMapper.toResponse(equipment))
     }
@@ -81,8 +85,10 @@ class EquipmentController(
         @Valid @RequestBody request: RetireEquipmentRequest
     ): ResponseEntity<EquipmentResponse> {
         val equipment = retireEquipmentUseCase.retireEquipment(
-            id = id,
-            reason = request.reason
+            RetireEquipmentCommand(
+                id = id,
+                reason = request.reason
+            )
         )
         return ResponseEntity.ok(equipmentMapper.toResponse(equipment))
     }

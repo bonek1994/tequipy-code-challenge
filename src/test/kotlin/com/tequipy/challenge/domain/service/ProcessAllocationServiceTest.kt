@@ -4,7 +4,7 @@ import com.tequipy.challenge.domain.model.AllocationProcessingRecord
 import com.tequipy.challenge.domain.model.AllocationProcessingState
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentType
-import com.tequipy.challenge.domain.port.api.ProcessAllocationCommand
+import com.tequipy.challenge.domain.command.ProcessAllocationCommand
 import com.tequipy.challenge.domain.port.spi.InventoryAllocationPort
 import com.tequipy.challenge.domain.port.spi.AllocationEventPublisher
 import com.tequipy.challenge.domain.port.spi.AllocationProcessingRepository

@@ -1,9 +1,10 @@
 package com.tequipy.challenge.domain.port.api
 
-import com.tequipy.challenge.domain.model.AllocationRequest
-import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
+import com.tequipy.challenge.domain.command.CreateAllocationCommand
+import com.tequipy.challenge.domain.model.AllocationEntity
 
 interface CreateAllocationUseCase {
-    fun createAllocation(policy: List<EquipmentPolicyRequirement>): AllocationRequest
+    fun createAllocation(command: CreateAllocationCommand): AllocationEntity
 }
+
 

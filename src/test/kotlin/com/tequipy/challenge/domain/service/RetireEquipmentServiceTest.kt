@@ -3,6 +3,7 @@ package com.tequipy.challenge.domain.service
 import com.tequipy.challenge.domain.BadRequestException
 import com.tequipy.challenge.domain.ConflictException
 import com.tequipy.challenge.domain.NotFoundException
+import com.tequipy.challenge.domain.command.RetireEquipmentCommand
 import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.model.EquipmentType
@@ -27,7 +28,7 @@ class RetireEquipmentServiceTest {
         every { equipmentRepository.findById(id) } returns existing
         every { equipmentRepository.save(any()) } returns retired
 
-        val result = service.retireEquipment(id, "Broken hinge")
+        val result = service.retireEquipment(RetireEquipmentCommand(id, "Broken hinge"))
 
         assertEquals(EquipmentState.RETIRED, result.state)
         assertEquals("Broken hinge", result.retiredReason)
@@ -39,14 +40,14 @@ class RetireEquipmentServiceTest {
         every { equipmentRepository.findById(id) } returns sampleEquipment(id = id, state = EquipmentState.RESERVED)
 
         assertThrows(ConflictException::class.java) {
-            service.retireEquipment(id, "No longer needed")
+            service.retireEquipment(RetireEquipmentCommand(id, "No longer needed"))
         }
     }
 
     @Test
     fun `retireEquipment should reject blank reason`() {
         assertThrows(BadRequestException::class.java) {
-            service.retireEquipment(UUID.randomUUID(), "   ")
+            service.retireEquipment(RetireEquipmentCommand(UUID.randomUUID(), "   "))
         }
     }
 
@@ -56,7 +57,7 @@ class RetireEquipmentServiceTest {
         every { equipmentRepository.findById(id) } returns null
 
         assertThrows(NotFoundException::class.java) {
-            service.retireEquipment(id, "Missing")
+            service.retireEquipment(RetireEquipmentCommand(id, "Missing"))
         }
     }
 

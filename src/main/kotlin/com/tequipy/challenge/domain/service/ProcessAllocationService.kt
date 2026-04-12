@@ -2,7 +2,7 @@ package com.tequipy.challenge.domain.service
 
 import com.tequipy.challenge.domain.AllocationLockContentionException
 import com.tequipy.challenge.domain.model.AllocationProcessingState
-import com.tequipy.challenge.domain.port.api.ProcessAllocationCommand
+import com.tequipy.challenge.domain.command.ProcessAllocationCommand
 import com.tequipy.challenge.domain.port.api.ProcessAllocationUseCase
 import com.tequipy.challenge.domain.port.spi.InventoryAllocationPort
 import com.tequipy.challenge.domain.port.spi.AllocationEventPublisher

@@ -1,6 +1,6 @@
 package com.tequipy.challenge.adapter.api.messaging
 
-import com.tequipy.challenge.domain.port.api.ProcessAllocationCommand
+import com.tequipy.challenge.domain.command.ProcessAllocationCommand
 import com.tequipy.challenge.domain.port.api.ProcessAllocationUseCase
 import com.tequipy.challenge.domain.model.EquipmentType
 import io.mockk.mockk

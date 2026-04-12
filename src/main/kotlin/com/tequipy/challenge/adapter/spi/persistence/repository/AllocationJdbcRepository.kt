@@ -1,6 +1,6 @@
 package com.tequipy.challenge.adapter.spi.persistence.repository
 
-import com.tequipy.challenge.adapter.spi.persistence.entity.AllocationRequestEntity
+import com.tequipy.challenge.adapter.spi.persistence.entity.AllocationEntity
 import com.tequipy.challenge.adapter.spi.persistence.entity.EquipmentPolicyRequirementEmbeddable
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.EquipmentType
@@ -11,10 +11,10 @@ import org.springframework.stereotype.Repository
 import java.util.UUID
 
 @Repository
-class AllocationRequestJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
+class AllocationJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
 
-    private val allocationRowMapper = RowMapper<AllocationRequestEntity> { rs, _ ->
-        AllocationRequestEntity(
+    private val allocationRowMapper = RowMapper<AllocationEntity> { rs, _ ->
+        AllocationEntity(
             id = rs.getObject("id", UUID::class.java),
             state = AllocationState.valueOf(rs.getString("state")),
             policy = emptyList(),
@@ -33,10 +33,10 @@ class AllocationRequestJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
         )
     }
 
-    fun save(entity: AllocationRequestEntity): AllocationRequestEntity {
+    fun save(entity: AllocationEntity): AllocationEntity {
         jdbcTemplate.update(
             """
-            INSERT INTO allocation_requests (id, state, idempotency_key)
+            INSERT INTO allocations (id, state, idempotency_key)
             VALUES (?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
                 state = EXCLUDED.state
@@ -73,10 +73,10 @@ class AllocationRequestJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
         return entity
     }
 
-    fun findById(id: UUID): AllocationRequestEntity? {
+    fun findById(id: UUID): AllocationEntity? {
         val allocation = try {
             jdbcTemplate.queryForObject(
-                "SELECT * FROM allocation_requests WHERE id = ?",
+                "SELECT * FROM allocations WHERE id = ?",
                 allocationRowMapper,
                 id
             )
@@ -99,10 +99,10 @@ class AllocationRequestJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
         return allocation.copy(policy = policy, allocatedEquipmentIds = equipmentIds)
     }
 
-    fun findByIdempotencyKey(key: UUID): AllocationRequestEntity? {
+    fun findByIdempotencyKey(key: UUID): AllocationEntity? {
         val allocation = try {
             jdbcTemplate.queryForObject(
-                "SELECT * FROM allocation_requests WHERE idempotency_key = ?",
+                "SELECT * FROM allocations WHERE idempotency_key = ?",
                 allocationRowMapper,
                 key
             )
@@ -125,9 +125,9 @@ class AllocationRequestJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
         return allocation.copy(policy = policy, allocatedEquipmentIds = equipmentIds)
     }
 
-    fun completePending(id: UUID, state: AllocationState, allocatedEquipmentIds: List<UUID>): AllocationRequestEntity? {
+    fun completePending(id: UUID, state: AllocationState, allocatedEquipmentIds: List<UUID>): AllocationEntity? {
         val updatedRows = jdbcTemplate.update(
-            "UPDATE allocation_requests SET state = ? WHERE id = ? AND state = ?",
+            "UPDATE allocations SET state = ? WHERE id = ? AND state = ?",
             state.name,
             id,
             AllocationState.PENDING.name
@@ -151,3 +151,5 @@ class AllocationRequestJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
         return findById(id)
     }
 }
+
+
