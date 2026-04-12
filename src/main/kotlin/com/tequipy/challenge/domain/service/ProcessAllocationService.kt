@@ -4,16 +4,16 @@ import com.tequipy.challenge.domain.AllocationLockContentionException
 import com.tequipy.challenge.domain.model.AllocationProcessingState
 import com.tequipy.challenge.domain.port.api.ProcessAllocationCommand
 import com.tequipy.challenge.domain.port.api.ProcessAllocationUseCase
+import com.tequipy.challenge.domain.port.spi.InventoryAllocationPort
 import com.tequipy.challenge.domain.port.spi.AllocationEventPublisher
 import com.tequipy.challenge.domain.port.spi.AllocationProcessingRepository
-import com.tequipy.challenge.domain.port.spi.InventoryReservationPort
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
 @Service
 class ProcessAllocationService(
-    private val inventoryReservationPort: InventoryReservationPort,
+    private val inventoryAllocationPort: InventoryAllocationPort,
     private val allocationProcessingRepository: AllocationProcessingRepository,
     private val allocationEventPublisher: AllocationEventPublisher
 ) : ProcessAllocationUseCase {
@@ -42,7 +42,7 @@ class ProcessAllocationService(
             }
         }
 
-        val reservedEquipmentIds = inventoryReservationPort.reserveForAllocation(command.allocationId, command.policy)
+        val reservedEquipmentIds = inventoryAllocationPort.reserveForAllocation(command.allocationId, command.policy)
 
         if (reservedEquipmentIds == null) {
             logger.warn { "Allocation ${command.allocationId} failed: no candidate equipment found for policy" }
