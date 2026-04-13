@@ -15,7 +15,10 @@ class AllocationProcessedMessageListener(
     private val logger = KotlinLogging.logger {}
 
     @Transactional
-    @RabbitListener(queues = [RabbitMQConfig.ALLOCATION_RESULT_QUEUE])
+    @RabbitListener(
+        queues = [RabbitMQConfig.ALLOCATION_RESULT_QUEUE],
+        containerFactory = "allocationResultListenerContainerFactory"
+    )
     fun onAllocationProcessed(message: AllocationProcessedMessage) {
         val targetState = if (message.success) AllocationState.ALLOCATED else AllocationState.FAILED
         val applied = allocationRepository.completePending(

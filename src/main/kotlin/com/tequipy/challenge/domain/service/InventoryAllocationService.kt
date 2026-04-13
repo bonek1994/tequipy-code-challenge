@@ -1,7 +1,6 @@
 package com.tequipy.challenge.domain.service
 
 import com.tequipy.challenge.domain.AllocationLockContentionException
-import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.port.spi.InventoryAllocationPort
@@ -25,26 +24,22 @@ class InventoryAllocationService(
         val requiredTypes = policy.map { it.type }.toSet()
 
         val available = equipmentRepository.findAvailableWithMinConditionScore(requiredTypes, globalMinScore)
-        val candidateIds = findCandidateIds(policy, available)
-        if (candidateIds.isEmpty()) {
-            return null
-        }
+        val selected = allocationAlgorithm.allocate(
+            policy = policy,
+            availableEquipment = available
+        ) ?: return null
 
-        val lockedCandidates = equipmentRepository.findByIdsForUpdate(candidateIds, globalMinScore)
-        if (lockedCandidates.size < candidateIds.size) {
+        val selectedIds = selected.map { it.id }
+        val lockedSelected = equipmentRepository.findByIdsForUpdate(selectedIds, globalMinScore)
+        if (lockedSelected.size < selectedIds.size) {
             logger.warn {
-                "Lock contention for allocation $allocationId: obtained ${lockedCandidates.size}/${candidateIds.size} candidate locks, triggering retry"
+                "Lock contention for allocation $allocationId: obtained ${lockedSelected.size}/${selectedIds.size} selected locks, triggering retry"
             }
             throw AllocationLockContentionException(allocationId)
         }
 
-        val selected = allocationAlgorithm.allocate(
-            policy = policy,
-            availableEquipment = lockedCandidates
-        ) ?: return null
-
         equipmentRepository.saveAll(selected.map { it.copy(state = EquipmentState.RESERVED) })
-        return selected.map { it.id }
+        return selectedIds
     }
 
     @Transactional
@@ -65,16 +60,6 @@ class InventoryAllocationService(
                 if (it.state == EquipmentState.RESERVED) it.copy(state = EquipmentState.AVAILABLE) else it
             }
         )
-    }
-
-    private fun findCandidateIds(policy: List<EquipmentPolicyRequirement>, available: List<Equipment>): List<UUID> {
-        val slots = policy.flatMap { req -> List(req.quantity) { req.copy(quantity = 1) } }
-        return available.filter { equipment ->
-            slots.any { req ->
-                equipment.type == req.type &&
-                    (req.minimumConditionScore == null || equipment.conditionScore >= req.minimumConditionScore)
-            }
-        }.map { it.id }
     }
 }
 

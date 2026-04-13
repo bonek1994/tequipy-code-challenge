@@ -28,6 +28,9 @@ class RabbitMQConfig {
         const val ALLOCATION_DLQ = "allocation.dlq"
         const val ALLOCATION_DLX = "allocation.dlx"
         const val ALLOCATION_RETRY_ATTEMPTS_PROPERTY = "tequipy.rabbitmq.allocation-retry-attempts"
+        const val ALLOCATION_PREFETCH_COUNT_PROPERTY = "tequipy.rabbitmq.allocation-prefetch-count"
+        const val RESULT_CONSUMER_CONCURRENCY_PROPERTY = "tequipy.rabbitmq.result-consumer-concurrency"
+        const val RESULT_PREFETCH_COUNT_PROPERTY = "tequipy.rabbitmq.result-prefetch-count"
     }
 
     @Bean
@@ -59,7 +62,7 @@ class RabbitMQConfig {
     @Bean
     fun allocationRetryInterceptor(
         republishMessageRecoverer: RepublishMessageRecoverer,
-        @Value("\${$ALLOCATION_RETRY_ATTEMPTS_PROPERTY:10}") maxRetryAttempts: Int
+        @Value("\${$ALLOCATION_RETRY_ATTEMPTS_PROPERTY:3}") maxRetryAttempts: Int
     ): RetryOperationsInterceptor {
         val retryTemplate = RetryTemplate()
         retryTemplate.setRetryPolicy(
@@ -80,12 +83,36 @@ class RabbitMQConfig {
     fun rabbitListenerContainerFactory(
         connectionFactory: ConnectionFactory,
         allocationRetryInterceptor: RetryOperationsInterceptor,
-        jsonMessageConverter: Jackson2JsonMessageConverter
+        jsonMessageConverter: Jackson2JsonMessageConverter,
+        @Value("\${$ALLOCATION_PREFETCH_COUNT_PROPERTY:10}") prefetchCount: Int
     ): SimpleRabbitListenerContainerFactory {
         val factory = SimpleRabbitListenerContainerFactory()
         factory.setConnectionFactory(connectionFactory)
         factory.setAdviceChain(allocationRetryInterceptor)
         factory.setMessageConverter(jsonMessageConverter)
+        factory.setPrefetchCount(prefetchCount)
+        return factory
+    }
+
+    /**
+     * Dedicated container factory for allocation.result.queue consumers.
+     * No retry interceptor needed — result processing is a simple DB update.
+     * Runs with its own concurrency pool so it never blocks on the main
+     * allocation queue processing.
+     */
+    @Bean
+    fun allocationResultListenerContainerFactory(
+        connectionFactory: ConnectionFactory,
+        jsonMessageConverter: Jackson2JsonMessageConverter,
+        @Value("\${$RESULT_CONSUMER_CONCURRENCY_PROPERTY:4}") concurrentConsumers: Int,
+        @Value("\${$RESULT_PREFETCH_COUNT_PROPERTY:20}") prefetchCount: Int
+    ): SimpleRabbitListenerContainerFactory {
+        val factory = SimpleRabbitListenerContainerFactory()
+        factory.setConnectionFactory(connectionFactory)
+        factory.setMessageConverter(jsonMessageConverter)
+        factory.setConcurrentConsumers(concurrentConsumers)
+        factory.setMaxConcurrentConsumers(concurrentConsumers)
+        factory.setPrefetchCount(prefetchCount)
         return factory
     }
 }

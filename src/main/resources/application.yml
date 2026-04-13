@@ -10,6 +10,12 @@ spring:
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
 
+tequipy:
+  rabbitmq:
+    allocation-consumer-concurrency: 4
+    allocation-max-consumer-concurrency: 8
+    allocation-prefetch-count: 10
+
 server:
   port: ${APP_PORT:8080}
 
