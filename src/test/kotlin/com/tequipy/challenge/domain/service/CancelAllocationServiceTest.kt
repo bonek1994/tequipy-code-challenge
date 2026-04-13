@@ -1,7 +1,7 @@
 package com.tequipy.challenge.domain.service
 
 import com.tequipy.challenge.domain.ConflictException
-import com.tequipy.challenge.domain.model.AllocationRequest
+import com.tequipy.challenge.domain.model.AllocationEntity
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentType
@@ -24,7 +24,7 @@ class CancelAllocationServiceTest {
     fun `cancelAllocation should release reserved equipment`() {
         val allocationId = UUID.randomUUID()
         val equipmentId = UUID.randomUUID()
-        val allocation = AllocationRequest(
+        val allocation = AllocationEntity(
             id = allocationId,
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
             state = AllocationState.ALLOCATED,
@@ -43,7 +43,7 @@ class CancelAllocationServiceTest {
     @Test
     fun `cancelAllocation should cancel pending allocation without touching equipment`() {
         val allocationId = UUID.randomUUID()
-        val allocation = AllocationRequest(
+        val allocation = AllocationEntity(
             id = allocationId,
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
             state = AllocationState.PENDING,
@@ -62,7 +62,7 @@ class CancelAllocationServiceTest {
     @Test
     fun `cancelAllocation should cancel failed allocation without touching equipment`() {
         val allocationId = UUID.randomUUID()
-        val allocation = AllocationRequest(
+        val allocation = AllocationEntity(
             id = allocationId,
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
             state = AllocationState.FAILED,
@@ -81,7 +81,7 @@ class CancelAllocationServiceTest {
     @Test
     fun `cancelAllocation should throw for confirmed allocation`() {
         val allocationId = UUID.randomUUID()
-        every { allocationRepository.findById(allocationId) } returns AllocationRequest(
+        every { allocationRepository.findById(allocationId) } returns AllocationEntity(
             id = allocationId,
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
             state = AllocationState.CONFIRMED,
@@ -97,7 +97,7 @@ class CancelAllocationServiceTest {
     fun `cancelAllocation should delegate release for allocated equipment ids`() {
         val allocationId = UUID.randomUUID()
         val equipmentId = UUID.randomUUID()
-        val allocation = AllocationRequest(
+        val allocation = AllocationEntity(
             id = allocationId,
             policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
             state = AllocationState.ALLOCATED,
@@ -112,4 +112,5 @@ class CancelAllocationServiceTest {
         verify { inventoryAllocationPort.releaseReservedEquipment(listOf(equipmentId)) }
     }
 }
+
 

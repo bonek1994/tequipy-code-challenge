@@ -4,6 +4,7 @@ import com.tequipy.challenge.adapter.api.web.dto.AllocationResponse
 import com.tequipy.challenge.adapter.api.web.dto.CreateAllocationRequest
 import com.tequipy.challenge.adapter.api.web.mapper.AllocationMapper
 import com.tequipy.challenge.adapter.api.web.mapper.EquipmentMapper
+import com.tequipy.challenge.domain.command.CreateAllocationCommand
 import com.tequipy.challenge.domain.port.api.CancelAllocationUseCase
 import com.tequipy.challenge.domain.port.api.ConfirmAllocationUseCase
 import com.tequipy.challenge.domain.port.api.CreateAllocationUseCase
@@ -53,7 +54,9 @@ class AllocationController(
     @PostMapping
     fun createAllocation(@Valid @RequestBody request: CreateAllocationRequest): ResponseEntity<AllocationResponse> {
         val allocation = createAllocationUseCase.createAllocation(
-            policy = request.policy.map(allocationMapper::toDomain)
+            CreateAllocationCommand(
+                policy = request.policy.map(allocationMapper::toDomain)
+            )
         )
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(toResponse(allocation.id))
     }

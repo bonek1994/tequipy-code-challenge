@@ -12,6 +12,7 @@ import org.springframework.amqp.rabbit.connection.ConnectionFactory
 import org.springframework.amqp.rabbit.core.RabbitTemplate
 import org.springframework.amqp.rabbit.retry.RepublishMessageRecoverer
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.retry.support.RetryTemplate
@@ -26,7 +27,7 @@ class RabbitMQConfig {
         const val ALLOCATION_RESULT_QUEUE = "allocation.result.queue"
         const val ALLOCATION_DLQ = "allocation.dlq"
         const val ALLOCATION_DLX = "allocation.dlx"
-        const val MAX_RETRY_ATTEMPTS = 12
+        const val ALLOCATION_RETRY_ATTEMPTS_PROPERTY = "tequipy.rabbitmq.allocation-retry-attempts"
     }
 
     @Bean
@@ -57,12 +58,13 @@ class RabbitMQConfig {
 
     @Bean
     fun allocationRetryInterceptor(
-        republishMessageRecoverer: RepublishMessageRecoverer
+        republishMessageRecoverer: RepublishMessageRecoverer,
+        @Value("\${$ALLOCATION_RETRY_ATTEMPTS_PROPERTY:10}") maxRetryAttempts: Int
     ): RetryOperationsInterceptor {
         val retryTemplate = RetryTemplate()
         retryTemplate.setRetryPolicy(
             SimpleRetryPolicy(
-                MAX_RETRY_ATTEMPTS,
+                maxRetryAttempts,
                 mapOf(AllocationLockContentionException::class.java to true),
                 true,   // traverseCauses
                 false   // defaultValue: don't retry exceptions not in the map

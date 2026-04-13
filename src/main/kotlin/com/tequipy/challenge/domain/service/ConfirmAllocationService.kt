@@ -2,7 +2,7 @@ package com.tequipy.challenge.domain.service
 
 import com.tequipy.challenge.domain.ConflictException
 import com.tequipy.challenge.domain.NotFoundException
-import com.tequipy.challenge.domain.model.AllocationRequest
+import com.tequipy.challenge.domain.model.AllocationEntity
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.port.api.ConfirmAllocationUseCase
 import com.tequipy.challenge.domain.port.spi.InventoryAllocationPort
@@ -21,7 +21,7 @@ class ConfirmAllocationService(
 
     private val logger = KotlinLogging.logger {}
 
-    override fun confirmAllocation(id: UUID): AllocationRequest {
+    override fun confirmAllocation(id: UUID): AllocationEntity {
         val allocation = requireAllocation(id)
         if (allocation.state != AllocationState.ALLOCATED) {
             throw ConflictException("Only allocated requests can be confirmed")
@@ -35,9 +35,10 @@ class ConfirmAllocationService(
         return confirmed
     }
 
-    private fun requireAllocation(id: UUID): AllocationRequest {
+    private fun requireAllocation(id: UUID): AllocationEntity {
         return allocationRepository.findById(id)
             ?: throw NotFoundException("Allocation not found with id: $id")
     }
 }
+
 

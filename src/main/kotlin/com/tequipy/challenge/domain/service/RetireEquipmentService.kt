@@ -3,6 +3,7 @@ package com.tequipy.challenge.domain.service
 import com.tequipy.challenge.domain.BadRequestException
 import com.tequipy.challenge.domain.ConflictException
 import com.tequipy.challenge.domain.NotFoundException
+import com.tequipy.challenge.domain.command.RetireEquipmentCommand
 import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.port.api.RetireEquipmentUseCase
@@ -10,7 +11,6 @@ import com.tequipy.challenge.domain.port.spi.EquipmentRepository
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.util.UUID
 
 @Service
 @Transactional
@@ -20,23 +20,23 @@ class RetireEquipmentService(
 
     private val logger = KotlinLogging.logger {}
 
-    override fun retireEquipment(id: UUID, reason: String): Equipment {
-        if (reason.isBlank()) {
+    override fun retireEquipment(command: RetireEquipmentCommand): Equipment {
+        if (command.reason.isBlank()) {
             throw BadRequestException("Retirement reason must not be blank")
         }
 
-        val equipment = equipmentRepository.findById(id)
-            ?: throw NotFoundException("Equipment not found with id: $id")
+        val equipment = equipmentRepository.findById(command.id)
+            ?: throw NotFoundException("Equipment not found with id: ${command.id}")
 
         if (equipment.state != EquipmentState.AVAILABLE) {
             throw ConflictException("Only available equipment can be retired")
         }
 
-        logger.info { "Retiring equipment: id=$id" }
+        logger.info { "Retiring equipment: id=${command.id}" }
         val retired = equipmentRepository.save(
             equipment.copy(
                 state = EquipmentState.RETIRED,
-                retiredReason = reason
+                retiredReason = command.reason
             )
         )
         logger.info { "Equipment retired: id=${retired.id}" }

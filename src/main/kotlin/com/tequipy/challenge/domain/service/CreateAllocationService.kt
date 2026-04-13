@@ -1,9 +1,9 @@
 package com.tequipy.challenge.domain.service
 
 import com.tequipy.challenge.domain.BadRequestException
-import com.tequipy.challenge.domain.model.AllocationRequest
+import com.tequipy.challenge.domain.command.CreateAllocationCommand
+import com.tequipy.challenge.domain.model.AllocationEntity
 import com.tequipy.challenge.domain.model.AllocationState
-import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.port.api.CreateAllocationUseCase
 import com.tequipy.challenge.domain.port.spi.AllocationEventPublisher
 import com.tequipy.challenge.domain.port.spi.AllocationRepository
@@ -21,22 +21,22 @@ class CreateAllocationService(
 
     private val logger = KotlinLogging.logger {}
 
-    override fun createAllocation(policy: List<EquipmentPolicyRequirement>): AllocationRequest {
-        if (policy.isEmpty()) {
+    override fun createAllocation(command: CreateAllocationCommand): AllocationEntity {
+        if (command.policy.isEmpty()) {
             throw BadRequestException("Allocation policy must not be empty")
         }
-        if (policy.any { it.quantity <= 0 }) {
+        if (command.policy.any { it.quantity <= 0 }) {
             throw BadRequestException("Allocation policy quantity must be greater than zero")
         }
-        if (policy.any { it.minimumConditionScore != null && it.minimumConditionScore !in 0.0..1.0 }) {
+        if (command.policy.any { it.minimumConditionScore != null && it.minimumConditionScore !in 0.0..1.0 }) {
             throw BadRequestException("minimumConditionScore must be between 0.0 and 1.0")
         }
 
-        logger.info { "Creating allocation with ${policy.size} policy requirement(s)" }
+        logger.info { "Creating allocation with ${command.policy.size} policy requirement(s)" }
         val allocation = allocationRepository.save(
-            AllocationRequest(
+            AllocationEntity(
                 id = UUID.randomUUID(),
-                policy = policy,
+                policy = command.policy,
                 state = AllocationState.PENDING,
                 allocatedEquipmentIds = emptyList()
             )
@@ -47,4 +47,5 @@ class CreateAllocationService(
         return allocation
     }
 }
+
 

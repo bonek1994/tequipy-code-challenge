@@ -1,7 +1,7 @@
 package com.tequipy.challenge.domain.service
 
 import com.tequipy.challenge.domain.NotFoundException
-import com.tequipy.challenge.domain.model.AllocationRequest
+import com.tequipy.challenge.domain.model.AllocationEntity
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.port.spi.AllocationRepository
 import io.mockk.every
@@ -18,7 +18,7 @@ class GetAllocationServiceTest {
     @Test
     fun `getAllocation should return allocation when found`() {
         val allocationId = UUID.randomUUID()
-        val allocation = AllocationRequest(allocationId, emptyList(), AllocationState.PENDING)
+        val allocation = AllocationEntity(allocationId, emptyList(), AllocationState.PENDING)
         every { allocationRepository.findById(allocationId) } returns allocation
 
         val result = service.getAllocation(allocationId)
@@ -36,4 +36,5 @@ class GetAllocationServiceTest {
         }
     }
 }
+
 

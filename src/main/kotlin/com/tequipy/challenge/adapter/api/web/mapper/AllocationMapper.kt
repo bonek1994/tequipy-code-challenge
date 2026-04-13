@@ -3,7 +3,7 @@ package com.tequipy.challenge.adapter.api.web.mapper
 import com.tequipy.challenge.adapter.api.web.dto.AllocationResponse
 import com.tequipy.challenge.adapter.api.web.dto.EquipmentPolicyRequirementRequest
 import com.tequipy.challenge.adapter.api.web.dto.EquipmentResponse
-import com.tequipy.challenge.domain.model.AllocationRequest
+import com.tequipy.challenge.domain.model.AllocationEntity
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import org.springframework.stereotype.Component
 
@@ -17,7 +17,7 @@ class AllocationMapper {
         preferredBrand = requirement.preferredBrand
     )
 
-    fun toResponse(allocation: AllocationRequest, allocatedEquipments: List<EquipmentResponse>) = AllocationResponse(
+    fun toResponse(allocation: AllocationEntity, allocatedEquipments: List<EquipmentResponse>) = AllocationResponse(
         id = allocation.id,
         state = allocation.state,
         policy = allocation.policy.map(::toResponseRequirement),
@@ -32,3 +32,4 @@ class AllocationMapper {
         preferredBrand = requirement.preferredBrand
     )
 }
+

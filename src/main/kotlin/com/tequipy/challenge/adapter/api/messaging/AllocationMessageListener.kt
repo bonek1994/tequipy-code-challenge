@@ -2,7 +2,7 @@ package com.tequipy.challenge.adapter.api.messaging
 
 import com.tequipy.challenge.config.RabbitMQConfig
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
-import com.tequipy.challenge.domain.port.api.ProcessAllocationCommand
+import com.tequipy.challenge.domain.command.ProcessAllocationCommand
 import com.tequipy.challenge.domain.port.api.ProcessAllocationUseCase
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.amqp.rabbit.annotation.RabbitListener

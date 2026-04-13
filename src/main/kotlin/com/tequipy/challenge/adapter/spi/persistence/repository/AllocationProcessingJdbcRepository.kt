@@ -45,7 +45,7 @@ class AllocationProcessingJdbcRepository(
         allocatedEquipmentIds: List<UUID>
     ): AllocationProcessingRecord {
         jdbcTemplate.update(
-            "UPDATE allocation_processing_results SET state = ? WHERE allocation_id = ?",
+            "UPDATE allocation_processing_results SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE allocation_id = ?",
             state.name,
             allocationId
         )
