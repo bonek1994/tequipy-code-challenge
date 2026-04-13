@@ -24,7 +24,8 @@ class BatchAllocationServiceTest {
     private val equipmentRepository: EquipmentRepository = mockk(relaxed = true)
     private val allocationProcessingRepository: AllocationProcessingRepository = mockk(relaxed = true)
     private val allocationEventPublisher: AllocationEventPublisher = mockk(relaxed = true)
-    private val service = BatchAllocationService(equipmentRepository, allocationProcessingRepository, allocationEventPublisher)
+    private val metrics = BatchAllocationMetrics()
+    private val service = BatchAllocationService(equipmentRepository, allocationProcessingRepository, allocationEventPublisher, metrics)
 
     // -------------------------------------------------------------------------
     // Empty / trivial cases

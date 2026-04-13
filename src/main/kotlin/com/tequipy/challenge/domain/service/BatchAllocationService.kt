@@ -30,7 +30,8 @@ import java.util.UUID
 class BatchAllocationService(
     private val equipmentRepository: EquipmentRepository,
     private val allocationProcessingRepository: AllocationProcessingRepository,
-    private val allocationEventPublisher: AllocationEventPublisher
+    private val allocationEventPublisher: AllocationEventPublisher,
+    private val metrics: BatchAllocationMetrics
 ) {
     companion object {
         const val MAX_BATCH_SIZE = 20
@@ -136,5 +137,6 @@ class BatchAllocationService(
         val successCount = results.values.count { it != null }
         val failedCount  = results.values.count { it == null }
         logger.info { "Batch complete: $successCount allocated, $failedCount failed" }
+        metrics.recordBatch(newCommands.size, successCount, failedCount)
     }
 }

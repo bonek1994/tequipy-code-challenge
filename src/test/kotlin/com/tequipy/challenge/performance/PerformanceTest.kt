@@ -4,6 +4,7 @@ import com.tequipy.challenge.adapter.api.web.dto.AllocationResponse
 import com.tequipy.challenge.adapter.api.web.dto.CreateAllocationRequest
 import com.tequipy.challenge.adapter.api.web.dto.EquipmentPolicyRequirementRequest
 import com.tequipy.challenge.domain.model.EquipmentType
+import com.tequipy.challenge.domain.service.BatchAllocationMetrics
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
@@ -69,6 +70,9 @@ class PerformanceTest {
 
     @Autowired
     private lateinit var jdbcTemplate: JdbcTemplate
+
+    @Autowired
+    private lateinit var batchMetrics: BatchAllocationMetrics
 
     companion object {
         private const val APPLE_COUNT = 7_500
@@ -250,8 +254,37 @@ class PerformanceTest {
         val p99 = if (sorted.isNotEmpty()) sorted[(sorted.size * 0.99).toInt().coerceAtMost(sorted.size - 1)] else 0L
         val throughput = responseTimes.size * 1_000.0 / testDurationMs
 
+        // ── Wait for all async allocation processing to complete ──────────────
+        println("\n=== Waiting for async allocation processing to complete ===")
+        val processingTimeoutMs = 120_000L
+        val processingStart = System.currentTimeMillis()
+        var processedCount = 0
+        while (System.currentTimeMillis() - processingStart < processingTimeoutMs) {
+            processedCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM allocation_processing_results WHERE state IN ('ALLOCATED', 'FAILED')",
+                Int::class.java
+            ) ?: 0
+            if (processedCount >= ALLOCATION_REQUESTS) break
+            Thread.sleep(500)
+        }
+        val processingWaitMs = System.currentTimeMillis() - processingStart
+        println("Processing completed: $processedCount / $ALLOCATION_REQUESTS in ${processingWaitMs} ms")
+
+        // ── Collect algorithm outcome counts from DB ──────────────────────────
+        val dbAllocated = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM allocation_processing_results WHERE state = 'ALLOCATED'",
+            Int::class.java
+        ) ?: 0
+        val dbFailed = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM allocation_processing_results WHERE state = 'FAILED'",
+            Int::class.java
+        ) ?: 0
+        val successRate = if (processedCount > 0) dbAllocated * 100.0 / processedCount else 0.0
+
         val report = buildString {
             appendLine("## 🚀 Performance Test Report")
+            appendLine()
+            appendLine("### HTTP Submission")
             appendLine()
             appendLine("| Metric | Value |")
             appendLine("|--------|-------|")
@@ -266,6 +299,25 @@ class PerformanceTest {
             appendLine("| Avg response time | ${"%.1f".format(avg)} ms |")
             appendLine("| P50 response time | $p50 ms |")
             appendLine("| P99 response time | $p99 ms |")
+            appendLine()
+            appendLine("### 📦 Queue / Batch Metrics")
+            appendLine()
+            appendLine("| Metric | Value |")
+            appendLine("|--------|-------|")
+            appendLine("| Batches processed | ${batchMetrics.batchesProcessed.get()} |")
+            appendLine("| Avg batch size | ${"%.1f".format(batchMetrics.avgBatchSize())} |")
+            appendLine("| Min batch size | ${batchMetrics.minBatchSize()} |")
+            appendLine("| Max batch size | ${batchMetrics.maxBatchSize()} |")
+            appendLine("| Total processing wait | ${processingWaitMs} ms |")
+            appendLine()
+            appendLine("### 🧠 Algorithm Outcome Metrics")
+            appendLine()
+            appendLine("| Metric | Value |")
+            appendLine("|--------|-------|")
+            appendLine("| Allocations ALLOCATED | $dbAllocated |")
+            appendLine("| Allocations FAILED | $dbFailed |")
+            appendLine("| Total processed | $processedCount |")
+            appendLine("| Success rate | ${"%.1f".format(successRate)}% |")
         }
 
         println("\n=== Performance Test Results ===")
