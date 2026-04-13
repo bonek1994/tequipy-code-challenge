@@ -1,11 +1,7 @@
 package com.tequipy.challenge.adapter.api.messaging
 
-import com.tequipy.challenge.domain.model.AllocationEntity
-import com.tequipy.challenge.domain.model.AllocationState
-import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
-import com.tequipy.challenge.domain.model.EquipmentType
-import com.tequipy.challenge.domain.port.spi.AllocationRepository
-import io.mockk.every
+import com.tequipy.challenge.domain.command.CompleteAllocationCommand
+import com.tequipy.challenge.domain.port.api.CompleteAllocationUseCase
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.jupiter.api.Test
@@ -13,52 +9,55 @@ import java.util.UUID
 
 class AllocationProcessedMessageListenerTest {
 
-    private val allocationRepository: AllocationRepository = mockk()
-    private val listener = AllocationProcessedMessageListener(allocationRepository)
+    private val completeAllocationUseCase: CompleteAllocationUseCase = mockk(relaxed = true)
+    private val listener = AllocationProcessedMessageListener(completeAllocationUseCase)
 
     @Test
-    fun `onAllocationProcessed should apply allocated result to pending allocation`() {
+    fun `onAllocationProcessed should delegate successful result to use case`() {
         val allocationId = UUID.randomUUID()
-        every {
-            allocationRepository.completePending(allocationId, AllocationState.ALLOCATED, listOf(UUID.fromString("11111111-1111-1111-1111-111111111111")))
-        } returns AllocationEntity(
-            id = allocationId,
-            policy = listOf(EquipmentPolicyRequirement(EquipmentType.MONITOR, quantity = 1)),
-            state = AllocationState.ALLOCATED,
-            allocatedEquipmentIds = listOf(UUID.fromString("11111111-1111-1111-1111-111111111111"))
-        )
+        val equipmentIds = listOf(UUID.fromString("11111111-1111-1111-1111-111111111111"))
 
         listener.onAllocationProcessed(
             AllocationProcessedMessage(
                 id = allocationId,
                 success = true,
-                allocatedEquipmentIds = listOf(UUID.fromString("11111111-1111-1111-1111-111111111111"))
+                allocatedEquipmentIds = equipmentIds
             )
         )
 
         verify {
-            allocationRepository.completePending(
-                allocationId,
-                AllocationState.ALLOCATED,
-                listOf(UUID.fromString("11111111-1111-1111-1111-111111111111"))
+            completeAllocationUseCase.completeAllocation(
+                CompleteAllocationCommand(
+                    allocationId = allocationId,
+                    success = true,
+                    allocatedEquipmentIds = equipmentIds
+                )
             )
         }
     }
 
     @Test
-    fun `onAllocationProcessed should ignore duplicate or stale result`() {
+    fun `onAllocationProcessed should delegate failed result to use case`() {
         val allocationId = UUID.randomUUID()
-        every { allocationRepository.completePending(allocationId, AllocationState.FAILED, emptyList()) } returns null
+        val staleEquipmentIds = listOf(UUID.randomUUID())
 
         listener.onAllocationProcessed(
             AllocationProcessedMessage(
                 id = allocationId,
                 success = false,
-                allocatedEquipmentIds = listOf(UUID.randomUUID())
+                allocatedEquipmentIds = staleEquipmentIds
             )
         )
 
-        verify { allocationRepository.completePending(allocationId, AllocationState.FAILED, emptyList()) }
+        verify {
+            completeAllocationUseCase.completeAllocation(
+                CompleteAllocationCommand(
+                    allocationId = allocationId,
+                    success = false,
+                    allocatedEquipmentIds = staleEquipmentIds
+                )
+            )
+        }
     }
 }
 
