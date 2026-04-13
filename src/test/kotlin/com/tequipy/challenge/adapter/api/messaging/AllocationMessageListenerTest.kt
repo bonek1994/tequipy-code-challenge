@@ -1,8 +1,8 @@
 package com.tequipy.challenge.adapter.api.messaging
 
 import com.tequipy.challenge.domain.command.ProcessAllocationCommand
-import com.tequipy.challenge.domain.port.api.ProcessAllocationUseCase
 import com.tequipy.challenge.domain.model.EquipmentType
+import com.tequipy.challenge.domain.service.BatchAllocationCollector
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.jupiter.api.Test
@@ -10,11 +10,11 @@ import java.util.UUID
 
 class AllocationMessageListenerTest {
 
-    private val processAllocationUseCase: ProcessAllocationUseCase = mockk(relaxed = true)
-    private val listener = AllocationMessageListener(processAllocationUseCase)
+    private val batchAllocationCollector: BatchAllocationCollector = mockk(relaxed = true)
+    private val listener = AllocationMessageListener(batchAllocationCollector)
 
     @Test
-    fun `onAllocationCreated should invoke processor with allocation built from message`() {
+    fun `onAllocationCreated should submit command to batch collector`() {
         // given
         val allocationId = UUID.randomUUID()
         val message = AllocationRequestedMessage(
@@ -29,7 +29,7 @@ class AllocationMessageListenerTest {
 
         // then
         verify {
-            processAllocationUseCase.processAllocation(match { command: ProcessAllocationCommand ->
+            batchAllocationCollector.submit(match { command: ProcessAllocationCommand ->
                 command.allocationId == allocationId &&
                     command.policy.size == 1 &&
                     command.policy.single().type == EquipmentType.MONITOR

@@ -1,23 +1,23 @@
 package com.tequipy.challenge.adapter.api.messaging
 
 import com.tequipy.challenge.config.RabbitMQConfig
-import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.command.ProcessAllocationCommand
-import com.tequipy.challenge.domain.port.api.ProcessAllocationUseCase
+import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
+import com.tequipy.challenge.domain.service.BatchAllocationCollector
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.amqp.rabbit.annotation.RabbitListener
 import org.springframework.stereotype.Component
 
 @Component
 class AllocationMessageListener(
-    private val processAllocationUseCase: ProcessAllocationUseCase
+    private val batchAllocationCollector: BatchAllocationCollector
 ) {
     private val logger = KotlinLogging.logger {}
 
     @RabbitListener(queues = [RabbitMQConfig.ALLOCATION_QUEUE])
     fun onAllocationCreated(message: AllocationRequestedMessage) {
         logger.info { "Received allocation message: id=${message.id}" }
-        processAllocationUseCase.processAllocation(
+        batchAllocationCollector.submit(
             ProcessAllocationCommand(
                 allocationId = message.id,
                 policy = message.policy.map { requirement ->
