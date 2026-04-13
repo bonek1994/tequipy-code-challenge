@@ -7,88 +7,113 @@ many concurrent requests compete for the same pool of equipment (e.g., thousands
 simultaneous `MAIN_COMPUTER` requests against 15 000 available laptops) and proposes concrete
 improvements, ranked by impact and implementation difficulty.
 
+All references below are accurate against the codebase as it exists after the
+`Refactoring/cleanup` merges (commits `52f9912` / `ea5b177`).
+
 ---
 
 ## 1. How the Current Flow Works
 
 ```
 HTTP POST /allocations
-  → CreateAllocationService  – persists PENDING allocation
-  → publishes AllocationRequestedMessage to allocation.queue
+  → CreateAllocationService.createAllocation(CreateAllocationCommand)
+      Saves PENDING AllocationEntity, then after-commit:
+      → RabbitMQAllocationEventPublisher.publishAllocationCreated()
+            Sends AllocationRequestedMessage → allocation.queue
 
 RabbitMQ consumer (AllocationMessageListener)
-  → ProcessAllocationService.processAllocation()
-      ├─ AllocationProcessingRepository.tryStart()        [idempotency guard]
-      └─ InventoryAllocationService.reserveForAllocation()
+  → ProcessAllocationService.processAllocation(ProcessAllocationCommand)
+      ├─ AllocationProcessingRepository.tryStart(allocationId)  [idempotency guard]
+      └─ InventoryAllocationService.reserveForAllocation(allocationId, policy)
             │
-            ├─ 1. equipmentRepository.findAvailableWithMinConditionScore()
+            ├─ 1. equipmentRepository.findAvailableWithMinConditionScore(types, minScore)
             │       SELECT * FROM equipments
             │       WHERE state = 'AVAILABLE' AND type IN (…) AND condition_score >= ?
             │       -- returns ALL matching rows (potentially thousands)
             │
-            ├─ 2. findCandidateIds()
-            │       Runs AllocationAlgorithm in-JVM on the full result set
-            │       → deterministic top-N candidate IDs
+            ├─ 2. findCandidateIds(policy, available)
+            │       Filters available rows to every item matching ANY slot's type +
+            │       minimumConditionScore → returns ALL matching equipment IDs,
+            │       not just the N slots that are needed (see §2.2)
             │
-            ├─ 3. equipmentRepository.findByIdsForUpdate(candidateIds)
+            ├─ 3. equipmentRepository.findByIdsForUpdate(candidateIds, globalMinScore)
             │       SELECT * FROM equipments
-            │       WHERE id IN (candidate_ids) AND state = 'AVAILABLE'
+            │       WHERE id IN (all_candidate_ids) AND state = 'AVAILABLE'
+            │             AND condition_score >= ?
             │       FOR UPDATE SKIP LOCKED
+            │       → rows locked by other transactions are silently skipped
             │
             ├─ 4. if lockedCandidates.size < candidateIds.size
             │         → throw AllocationLockContentionException
-            │           (RabbitMQ retries up to 12 times)
+            │           (RabbitMQ retries up to `allocation-retry-attempts` times,
+            │            default 10, then dead-letters to allocation.dlq)
             │
-            └─ 5. allocationAlgorithm.allocate(lockedCandidates)
+            └─ 5. allocationAlgorithm.allocate(policy, lockedCandidates)
                   equipmentRepository.saveAll(selected as RESERVED)
 ```
+
+The final `AllocationProcessedMessage` is published to `allocation.result.queue` after
+commit; `AllocationProcessedMessageListener` picks it up and transitions the
+`AllocationEntity` to `ALLOCATED` or `FAILED`.
 
 ---
 
 ## 2. Root Causes of High Contention
 
-### 2.1 Deterministic Top-N Selection (All Transactions Fight for the Same Rows)
+### 2.1 Deterministic Scoring (All Transactions Fight for the Same Rows)
 
 `AllocationAlgorithm.scoreCandidate()` is **fully deterministic**:
 
 ```kotlin
-val brandScore   = if (preferredBrand matches) 10.0 else 0.0
+val brandScore    = if (equipment.brand matches requirement.preferredBrand) 10.0 else 0.0
 val conditionScore = equipment.conditionScore
 return brandScore + conditionScore
 ```
 
-With 15 000 MAIN_COMPUTER laptops, every single concurrent transaction picks the same
-top-scoring items (highest `conditionScore` + brand match).  All transactions then race to
-lock that small elite subset; the rest of the pool is never touched.
+With 15 000 MAIN_COMPUTER laptops, every concurrent transaction ranks the same top-scoring
+items highest (brand match + highest `conditionScore`).  All transactions race to lock that
+small elite subset; the remainder of the pool is never considered.
 
-### 2.2 Two-Phase Read-Then-Lock Pattern
+### 2.2 `findCandidateIds` Locks the Entire Eligible Pool, Not Just What Is Needed
 
-The flow performs **two separate round-trips** to PostgreSQL per allocation:
-
-1. `findAvailableWithMinConditionScore` — reads *all* eligible rows into JVM.
-2. `findByIdsForUpdate` — tries to lock exactly the candidates chosen in step 1.
-
-Because `FOR UPDATE SKIP LOCKED` skips rows held by other transactions, step 2 frequently
-returns fewer rows than requested.  The strict guard
+`InventoryAllocationService.findCandidateIds()` returns the IDs of **every** equipment item
+that satisfies any slot requirement:
 
 ```kotlin
-if (lockedCandidates.size < candidateIds.size) throw AllocationLockContentionException(…)
+private fun findCandidateIds(policy: List<EquipmentPolicyRequirement>, available: List<Equipment>): List<UUID> {
+    val slots = policy.flatMap { req -> List(req.quantity) { req.copy(quantity = 1) } }
+    return available.filter { equipment ->
+        slots.any { req ->
+            equipment.type == req.type &&
+                (req.minimumConditionScore == null || equipment.conditionScore >= req.minimumConditionScore)
+        }
+    }.map { it.id }
+}
 ```
 
-causes an immediate retry even when perfectly valid replacements exist in the pool, wasting
-up to 12 retry round-trips per message before it lands in the DLQ.
+For a policy requesting 1 Apple laptop + 1 Dell laptop from a pool of 7 500 eligible Apple
+and 7 500 eligible Dell items, `candidateIds.size` = **15 000**.  The subsequent
+`findByIdsForUpdate` then attempts to lock all 15 000 rows with `FOR UPDATE SKIP LOCKED`.
+Because `SKIP LOCKED` silently drops any rows already locked by other transactions, even a
+single concurrent transaction touching one of those rows causes
+`lockedCandidates.size < 15 000` and triggers an immediate `AllocationLockContentionException`.
 
-### 2.3 Expensive Full-Table Scan Under Load
+This means the retry storm begins after the **first** concurrent transaction pair, regardless
+of how large the equipment pool is.
 
-`findAvailableWithMinConditionScore` fetches **every** row matching the criteria.  Under 5 000
-concurrent requests, each transaction materialises the same thousands of rows into JVM heap,
-creating both DB I/O amplification and GC pressure.
+### 2.3 Two Round-Trips and a Full Scan per Allocation
 
-### 2.4 One Transaction per Allocation Request
+1. `findAvailableWithMinConditionScore` — full table scan, loads all eligible rows into JVM.
+2. `findByIdsForUpdate` — tries to lock all of them.
 
-Because each allocation request is processed in its own isolated transaction, N concurrent
-requests create N competing transactions.  Under high load this scales DB contention
-linearly with the number of in-flight allocations.
+Under 5 000 concurrent requests, every transaction executes the same full scan, materialising
+the same thousands of rows into JVM heap, causing DB I/O amplification and GC pressure in
+addition to the lock contention.
+
+### 2.4 One DB Transaction per Allocation Request
+
+N concurrent HTTP requests → N competing DB transactions.  DB contention scales linearly
+with the number of in-flight allocations.
 
 ---
 
@@ -98,31 +123,33 @@ linearly with the number of in-flight allocations.
 
 **Eliminates contention without compromising quality.**
 
-Instead of one transaction per allocation request, a **batch processor** collects up to
-`maxBatchSize` pending messages within a `windowDuration` time window (e.g. 20 requests /
-5 seconds) and processes them **in a single transaction** against the full equipment pool.
-Within the transaction no intra-batch contention exists; cross-batch contention (one batch
-vs. another) is orders of magnitude rarer than one-request-per-transaction contention.
+Instead of one DB transaction per allocation request, a **batch processor** collects up to
+`maxBatchSize` pending `ProcessAllocationCommand`s within a `windowDuration` time window
+(e.g. 20 commands / 5 seconds) and processes them **in a single `@Transactional` call**
+against the shared equipment pool.  Within the transaction no intra-batch contention can
+occur; cross-batch contention (one batch vs. another) is orders of magnitude rarer.
 
 #### How the batch window works
 
 ```
                   Time →
   ┌──────────────────────────────────────────────────────┐
-  │   Messages arrive at queue                           │
+  │   Messages arrive at allocation.queue                │
   │   ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○          │
   │                                                      │
-  │   BatchCollector waits up to 5 s OR 20 items         │
+  │   BatchAllocationCollector waits ≤ 5 s OR 20 items   │
   │   ├────── window ──────┤                             │
   │   [○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○ ○]        │
-  │           ↓  single transaction                      │
-  │        SELECT … FOR UPDATE SKIP LOCKED               │
-  │        AllocationAlgorithm × N requests              │
-  │        UPDATE equipments SET state = RESERVED        │
+  │           ↓  single @Transactional call              │
+  │        SELECT … FOR UPDATE SKIP LOCKED  (one trip)   │
+  │        AllocationAlgorithm.allocate() × N requests   │
+  │        UPDATE equipments SET state = 'RESERVED'      │
   └──────────────────────────────────────────────────────┘
 ```
 
 #### New component: `BatchAllocationProcessor`
+
+Lives in `domain/service/` alongside the existing services.
 
 ```kotlin
 @Component
@@ -134,71 +161,60 @@ class BatchAllocationProcessor(
     private val allocationAlgorithm = AllocationAlgorithm()
 
     companion object {
-        const val MAX_BATCH_SIZE     = 20
+        const val MAX_BATCH_SIZE   = 20
         val WINDOW_DURATION: Duration = Duration.ofSeconds(5)
     }
 
-    /**
-     * Processes a batch of allocation commands in a single transaction.
-     * Equipment is fetched once for the whole batch; the algorithm is run
-     * per-request using only equipment not yet assigned within the batch.
-     */
     @Transactional
     fun processBatch(commands: List<ProcessAllocationCommand>) {
         if (commands.isEmpty()) return
 
-        // Combined hard constraints across the whole batch
-        val allTypes    = commands.flatMap { it.policy.map { req -> req.type } }.toSet()
-        val globalMin   = commands.flatMap { it.policy.mapNotNull { req -> req.minimumConditionScore } }
-                                  .minOrNull() ?: 0.0
+        // Union of all types and the lowest acceptable score across the batch
+        val allTypes  = commands.flatMap { it.policy.map { req -> req.type } }.toSet()
+        val globalMin = commands.flatMap { it.policy.mapNotNull { req -> req.minimumConditionScore } }
+                                .minOrNull() ?: 0.0
 
-        // Single DB round-trip: lock enough equipment for the whole batch
+        // ONE DB round-trip for the whole batch
         val totalSlots = commands.sumOf { cmd -> cmd.policy.sumOf { it.quantity } }
-        val pool = equipmentRepository.findAvailableWithMinConditionScore(allTypes, globalMin)
+        val pool       = equipmentRepository.findAvailableWithMinConditionScore(allTypes, globalMin)
         val lockedPool = equipmentRepository.findByIdsForUpdate(
-            pool.map { it.id }.take(totalSlots * 3),   // generous oversample
+            pool.map { it.id }.take(totalSlots * 3),   // generous oversample keeps lock scope bounded
             globalMin
         )
 
-        // Greedily assign equipment across requests; requests with the most
-        // constrained policies are processed first (fewest candidates → highest risk)
-        val sortedCommands = commands.sortedBy { cmd ->
-            cmd.policy.minOfOrNull { it.minimumConditionScore ?: 0.0 }?.times(-1) ?: 0.0
+        // Most-constrained-first: requests with the strictest minimumConditionScore
+        // get first pick of the locked pool
+        val sortedCommands = commands.sortedByDescending { cmd ->
+            cmd.policy.mapNotNull { it.minimumConditionScore }.maxOrNull() ?: 0.0
         }
 
-        val usedIds = mutableSetOf<UUID>()
+        val usedIds   = mutableSetOf<UUID>()
         val toReserve = mutableListOf<Equipment>()
         val results   = mutableMapOf<UUID, List<UUID>?>()
 
         for (cmd in sortedCommands) {
             val available = lockedPool.filter { it.id !in usedIds }
             val selected  = allocationAlgorithm.allocate(cmd.policy, available)
-
             if (selected != null) {
-                usedIds.addAll(selected.map { it.id })
-                toReserve.addAll(selected)
+                usedIds   += selected.map { it.id }
+                toReserve += selected
                 results[cmd.allocationId] = selected.map { it.id }
             } else {
                 results[cmd.allocationId] = null
             }
         }
 
-        // Persist all reservations atomically
         if (toReserve.isNotEmpty()) {
             equipmentRepository.saveAll(toReserve.map { it.copy(state = EquipmentState.RESERVED) })
         }
 
-        // Publish results and record idempotency state
         for (cmd in commands) {
             val reserved = results[cmd.allocationId]
             val state    = if (reserved != null) AllocationProcessingState.ALLOCATED
                            else AllocationProcessingState.FAILED
-
             allocationProcessingRepository.complete(cmd.allocationId, state, reserved ?: emptyList())
             allocationEventPublisher.publishAllocationProcessed(
-                cmd.allocationId,
-                success = reserved != null,
-                allocatedEquipmentIds = reserved ?: emptyList()
+                cmd.allocationId, success = reserved != null, allocatedEquipmentIds = reserved ?: emptyList()
             )
         }
     }
@@ -206,6 +222,8 @@ class BatchAllocationProcessor(
 ```
 
 #### New component: `BatchAllocationCollector`
+
+Replaces `AllocationMessageListener`'s direct delegation to `ProcessAllocationService`.
 
 ```kotlin
 @Component
@@ -216,26 +234,22 @@ class BatchAllocationCollector(
     private val pending = ArrayBlockingQueue<ProcessAllocationCommand>(1_000)
     private val lock    = ReentrantLock()
 
-    /** Called by AllocationMessageListener for each incoming message. */
+    /** Called by AllocationMessageListener instead of ProcessAllocationService. */
     fun submit(command: ProcessAllocationCommand) {
-        // Skip if already processed (idempotency)
         val existing = allocationProcessingRepository.findById(command.allocationId)
         if (existing != null && existing.state != AllocationProcessingState.PROCESSING) return
 
         pending.put(command)
-
-        // Trigger immediately when batch is full
-        if (pending.size >= BatchAllocationProcessor.MAX_BATCH_SIZE) {
-            flush()
-        }
+        if (pending.size >= BatchAllocationProcessor.MAX_BATCH_SIZE) flush()
     }
 
-    /** Scheduled flush — fires every WINDOW_DURATION to drain partial batches. */
-    @Scheduled(fixedDelayString = "#{T(com.tequipy.challenge.domain.service.BatchAllocationProcessor).WINDOW_DURATION.toMillis()}")
+    /** Drains partial batches when the window expires. */
+    @Scheduled(fixedDelayString =
+        "#{T(com.tequipy.challenge.domain.service.BatchAllocationProcessor).WINDOW_DURATION.toMillis()}")
     fun scheduledFlush() = flush()
 
     private fun flush() {
-        if (!lock.tryLock()) return     // another thread is already flushing
+        if (!lock.tryLock()) return
         try {
             val batch = mutableListOf<ProcessAllocationCommand>()
             pending.drainTo(batch, BatchAllocationProcessor.MAX_BATCH_SIZE)
@@ -249,21 +263,20 @@ class BatchAllocationCollector(
 
 #### Why quality is fully preserved
 
-- The `AllocationAlgorithm` runs on the **full locked pool** (same as today, but shared
-  across the batch).
+- `AllocationAlgorithm.allocate()` runs unchanged on the full locked pool.
 - Hard constraints (`type`, `minimumConditionScore`) are enforced exactly as before.
-- Soft preferences (`preferredBrand`, `conditionScore`, `purchaseDate`) are scored via the
-  same `scoreCandidate` function with no random sampling or jitter.
-- The only new decision is **ordering of requests within the batch**: most-constrained-first
-  ensures requests with stricter requirements get first pick of the pool.
+- Soft preferences (`preferredBrand`, `conditionScore`) are scored via the same
+  `scoreCandidate` function with no random sampling or jitter.
+- The only new decision is **ordering of commands within the batch**: most-constrained-first
+  ensures the tightest requests get first pick of the locked pool.
 
 #### Why contention drops to near-zero
 
-Under peak load (5 000 requests, 15 000 items), the one-request-per-transaction model
-produces up to 5 000 competing transactions.  With batches of 20, the same workload runs in
-at most 250 batch transactions — a **20× reduction** in transaction count.  Because each
-batch transaction acquires and releases its locks quickly (no contention within the batch),
-the probability of cross-batch collisions is negligible.
+Under peak load (5 000 requests, 15 000 items), the current model creates up to 5 000
+competing DB transactions.  With batches of 20, the same workload runs in at most 250 batch
+transactions — a **20× reduction**.  Because each batch transaction acquires and releases
+its locks as a unit (no contention within the batch), the probability of cross-batch
+collision is negligible.
 
 #### Latency vs. throughput trade-off
 
@@ -274,86 +287,61 @@ the probability of cross-batch collisions is negligible.
 | Throughput under load | limited by retry storms | ~20× higher |
 | Quality | full | identical (same algorithm, full pool) |
 
-The 5-second window is only relevant for processing start; allocation requests are already
-async (HTTP 202 on creation), so this latency is acceptable.
+Allocation requests are already async (HTTP 202 on creation), so the ≤ 5 s window is
+acceptable for processing start.
 
 ---
 
 ### Solution B — Partial Index for `AVAILABLE` Equipment ★★★☆☆
 
-The existing index covers all equipment states:
+The schema (consolidated into V1 migration) already creates a composite index on all states:
 
 ```sql
-CREATE INDEX idx_equipments_state_type_condition_score
+CREATE INDEX IF NOT EXISTS idx_equipments_state_type_condition_score
     ON equipments(state, type, condition_score);
 ```
 
-Under high allocation load, this index is constantly maintained for
-`AVAILABLE → RESERVED → ASSIGNED` transitions.  A **partial index** on `AVAILABLE` rows only is:
-
-- Smaller (only the subset that is actively queried for new allocations)
-- Cache-friendly (fits entirely in `shared_buffers` under typical loads)
-- Cheaper to maintain (updated only when equipment enters or leaves `AVAILABLE`, not on
-  subsequent `RESERVED → ASSIGNED` transitions)
+Under high allocation load, this index is maintained on every
+`AVAILABLE → RESERVED → ASSIGNED` transition.  A **partial index** restricted to `AVAILABLE`
+rows is smaller, cache-friendly, and cheaper to maintain — it is only updated when equipment
+enters or leaves `AVAILABLE`, not on subsequent `RESERVED → ASSIGNED` transitions.
 
 ```sql
--- V6__add_partial_index_available_equipment.sql
+-- V2__add_partial_index_available_equipment.sql
 CREATE INDEX IF NOT EXISTS idx_equipments_available_type_score
     ON equipments (type, condition_score)
     WHERE state = 'AVAILABLE';
 ```
 
-The query planner will prefer this index for both the `findAvailableWithMinConditionScore`
-and `findByIdsForUpdate` queries in the batch flow.
+The query planner will automatically prefer this index for `findAvailableWithMinConditionScore`
+and `findByIdsForUpdate`.
 
 ---
 
-### Solution C — CAS-style Atomic UPDATE (no `FOR UPDATE`) ★★★★☆
+### Solution C — CAS-style Atomic UPDATE (no long-held `FOR UPDATE` locks) ★★★★☆
 
-*Complementary to the batch approach if cross-batch contention becomes measurable.*
+*Complementary to Solution A if cross-batch contention remains measurable at very high
+replica counts.*
 
-Instead of acquiring row-level locks with `SELECT … FOR UPDATE`, run the algorithm on an
-**unlocked snapshot**, then commit the reservation atomically:
+Run `AllocationAlgorithm` on an **unlocked snapshot**, then commit the reservation
+atomically with a CAS `UPDATE`:
 
 ```sql
 UPDATE equipments
-SET    state = 'RESERVED'
+SET    state = 'RESERVED',
+       updated_at = CURRENT_TIMESTAMP
 WHERE  id IN (?)
   AND  state = 'AVAILABLE'
 RETURNING id
 ```
 
 If fewer IDs are returned than requested, some were taken by a concurrent batch.  Fetch
-replacement candidates for the missing slots and retry only those slots (not the whole
-batch).  This eliminates long-held locks entirely; the critical section is a single
-`UPDATE` statement.
+replacement candidates for the missing slots and retry **only those slots** (not the whole
+batch).  The critical section shrinks to a single `UPDATE` statement with no long-held
+row locks.
 
-**Trade-off:** Slightly more complex retry logic; best combined with Solution A to keep
-retries rare.
-
----
-
-### Solution D — Score-Based `FOR UPDATE` Without Random Ordering *(not recommended as sole fix)*
-
-A single-phase query with `FOR UPDATE SKIP LOCKED` and a `LIMIT` avoids the two-phase
-pattern and keeps lock scope small:
-
-```sql
-SELECT * FROM equipments
-WHERE  state = 'AVAILABLE'
-  AND  type IN (…)
-  AND  condition_score >= ?
-ORDER BY condition_score DESC, purchase_date DESC   -- deterministic quality ordering kept
-LIMIT ?
-FOR UPDATE SKIP LOCKED
-```
-
-Because `SKIP LOCKED` spreads transactions across rows naturally, top-scored rows are
-progressively consumed and later transactions fall back to lower-scored rows still in the
-pool.  However, with 5 000 simultaneous transactions using the same ordering, the leading
-rows are still contested first; only after those locks are released do later transactions
-see them.  This reduces but does not eliminate contention, and quality degrades subtly for
-later transactions.  **Prefer Solution A (batch) for zero quality impact.**
+**Trade-off:** Slightly more complex partial-retry logic in `InventoryAllocationService`;
+best applied on top of Solution A where retries are already rare.
 
 ---
 
@@ -361,24 +349,24 @@ later transactions.  **Prefer Solution A (batch) for zero quality impact.**
 
 | Solution | Effort | Contention Reduction | Quality Impact | Risk |
 |---|---|---|---|---|
-| **A** Batch allocation window (20 req / 5 s) | Medium | ★★★★★ | None | Low |
+| **A** Batch allocation window (20 cmd / 5 s) | Medium | ★★★★★ | None | Low |
 | **B** Partial index for AVAILABLE rows | Low | ★★★☆☆ | None | None |
-| **C** CAS atomic UPDATE | High | ★★★★☆ | None | Medium |
-| **D** Single-phase SKIP LOCKED + score ORDER + LIMIT | Medium | ★★★☆☆ | Minor (later batches) | Low |
+| **C** CAS `UPDATE … RETURNING` | High | ★★★★☆ | None | Medium |
 
 ---
 
 ## 5. Recommended Implementation Order
 
-1. **Solution B** — add the partial index migration.  Zero code change, immediate query plan
-   improvement, completely safe.
+1. **Solution B** — add the partial index via a new Flyway migration (`V2__…`).  Zero logic
+   change, immediate query-plan improvement, completely safe to deploy.
 
-2. **Solution A** — implement `BatchAllocationCollector` + `BatchAllocationProcessor`.
-   This is the primary fix: eliminates contention, preserves quality, and dramatically
-   increases throughput.
+2. **Solution A** — implement `BatchAllocationCollector` + `BatchAllocationProcessor` in
+   `domain/service/`, wire `AllocationMessageListener` to use the collector instead of
+   `ProcessAllocationService` directly.  This is the primary fix: eliminates contention,
+   preserves full allocation quality, and dramatically increases throughput.
 
-3. **Solution C** — add CAS-style `UPDATE … RETURNING` as a fallback if cross-batch
-   contention still appears at very high replica counts.
+3. **Solution C** — add CAS-style `UPDATE … RETURNING` inside `InventoryAllocationService`
+   as a fallback if cross-batch contention ever becomes measurable.
 
 Solutions A + B together should reduce the retry rate from near-100 % under peak load to
 effectively 0 % while preserving full allocation quality.
@@ -387,11 +375,13 @@ effectively 0 % while preserving full allocation quality.
 
 ## 6. Benchmark Reference
 
-The `PerformanceTest` in `src/test/kotlin/com/tequipy/challenge/performance/PerformanceTest.kt`
-seeds 15 000 `MAIN_COMPUTER` items and fires 5 000 concurrent allocation requests.  It is the
-ideal harness for validating these changes.  Before/after comparison points:
+`src/test/kotlin/com/tequipy/challenge/performance/PerformanceTest.kt` seeds 15 000
+`MAIN_COMPUTER` items (7 500 Apple + 7 500 Dell) and fires 5 000 concurrent allocation
+requests (each requesting 1 Apple + 1 Dell laptop with `minimumConditionScore = 0.7`).
+It is the natural harness for validating these changes.  Key before/after comparison points:
 
-- **Retry count** (observable via `AllocationLockContentionException` log lines)
-- **DLQ depth** (allocations exhausting all 12 retries)
-- **P50 / P99 response time** (reported in `build/performance-report.md`)
+- **`AllocationLockContentionException` count** in application logs
+- **DLQ depth** (`allocation.dlq`) — allocations that exhausted all
+  `allocation-retry-attempts` retries (default 10)
+- **P50 / P99 HTTP response time** (reported in `build/performance-report.md`)
 - **Wall-clock throughput** (req/s)
