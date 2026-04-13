@@ -12,7 +12,7 @@ class AllocationProcessingJdbcRepository(
 ) {
     fun tryStart(allocationId: UUID): Boolean {
         val updatedRows = jdbcTemplate.update(
-            "INSERT INTO allocation_processing_results (allocation_id, state) VALUES (?, ?) ON CONFLICT (allocation_id) DO NOTHING",
+            "INSERT INTO allocation_processing_results (allocation_id, state, created_at, updated_at) VALUES (?, ?, clock_timestamp(), clock_timestamp()) ON CONFLICT (allocation_id) DO NOTHING",
             allocationId,
             AllocationProcessingState.PROCESSING.name
         )
@@ -45,7 +45,7 @@ class AllocationProcessingJdbcRepository(
         allocatedEquipmentIds: List<UUID>
     ): AllocationProcessingRecord {
         jdbcTemplate.update(
-            "UPDATE allocation_processing_results SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE allocation_id = ?",
+            "UPDATE allocation_processing_results SET state = ?, updated_at = clock_timestamp() WHERE allocation_id = ?",
             state.name,
             allocationId
         )

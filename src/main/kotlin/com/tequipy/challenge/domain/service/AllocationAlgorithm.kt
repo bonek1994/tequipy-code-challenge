@@ -3,8 +3,21 @@ package com.tequipy.challenge.domain.service
 import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentState
+import com.tequipy.challenge.domain.model.EquipmentType
 
 class AllocationAlgorithm {
+
+    companion object {
+        /**
+         * Multiplier applied to the number of slots in a constraint group to
+         * determine how many top-scoring candidates to consider per slot.
+         *
+         * e.g. request for 5 monitors → 5 × 4 = top-20 candidates per slot.
+         * This keeps the search space bounded while giving the algorithm enough
+         * room to find a globally optimal combination.
+         */
+        const val CANDIDATE_MULTIPLIER = 4
+    }
 
     fun allocate(
         policy: List<EquipmentPolicyRequirement>,
@@ -14,11 +27,22 @@ class AllocationAlgorithm {
         val slots = policy.flatMap { requirement -> List(requirement.quantity) { requirement.copy(quantity = 1) } }
         if (slots.isEmpty()) return emptyList()
 
+        // Count how many slots compete for the same constraint group so
+        // the candidate limit always scales with the request size.
+        data class SlotKey(val type: EquipmentType, val minScore: Double?)
+        val slotsPerGroup = slots.groupingBy { SlotKey(it.type, it.minimumConditionScore) }.eachCount()
+
+        // Pre-sort and limit candidates per slot to top-K by score.
+        // K = groupSize × CANDIDATE_MULTIPLIER — enough headroom for the
+        // backtracking search, scales naturally with request size.
         val candidatesPerSlot = slots.map { requirement ->
+            val groupSize = slotsPerGroup[SlotKey(requirement.type, requirement.minimumConditionScore)] ?: 1
+            val limit = groupSize * CANDIDATE_MULTIPLIER
             eligibleEquipment.filter { equipment ->
                 equipment.type == requirement.type &&
                     (requirement.minimumConditionScore == null || equipment.conditionScore >= requirement.minimumConditionScore)
-            }
+            }.sortedByDescending { scoreCandidate(it, requirement) }
+             .take(limit)
         }
 
         if (candidatesPerSlot.any { it.isEmpty() }) return null
@@ -41,7 +65,6 @@ class AllocationAlgorithm {
             val requirement = slots[slotIndex]
             val candidates = candidatesPerSlot[slotIndex]
                 .filterNot { usedIds.contains(it.id) }
-                .sortedByDescending { candidate -> scoreCandidate(candidate, requirement) }
 
             if (candidates.isEmpty()) return
 
