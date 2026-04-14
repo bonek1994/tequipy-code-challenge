@@ -52,7 +52,7 @@ class BatchAllocationServiceTest {
         every { allocationProcessingRepository.tryStart(any()) } returns true
         every { equipmentRepository.findAvailableWithMinConditionScore(any(), any()) } returns listOf(eq1, eq2)
         every { equipmentRepository.findByIdsForUpdate(any(), any()) } returns listOf(eq1, eq2)
-        every { equipmentRepository.saveAll(any()) } answers { firstArg() }
+        every { equipmentRepository.updateAll(any()) } answers { firstArg() }
         every { allocationProcessingRepository.complete(any(), any(), any()) } answers {
             AllocationProcessingRecord(firstArg(), secondArg(), thirdArg())
         }
@@ -61,7 +61,7 @@ class BatchAllocationServiceTest {
 
         // Both equipment items must be reserved
         verify {
-            equipmentRepository.saveAll(match { saved ->
+            equipmentRepository.updateAll(match { saved ->
                 saved.size == 2 && saved.all { it.state == EquipmentState.RESERVED }
             })
         }
@@ -82,7 +82,7 @@ class BatchAllocationServiceTest {
 
         service.processBatch(listOf(cmd))
 
-        verify(exactly = 0) { equipmentRepository.saveAll(any()) }
+        verify(exactly = 0) { equipmentRepository.updateAll(any()) }
         verify { allocationProcessingRepository.complete(cmd.allocationId, AllocationProcessingState.FAILED, emptyList()) }
         verify { allocationEventPublisher.publishAllocationProcessed(cmd.allocationId, false, emptyList()) }
     }
@@ -101,7 +101,7 @@ class BatchAllocationServiceTest {
         every { allocationProcessingRepository.tryStart(any()) } returns true
         every { equipmentRepository.findAvailableWithMinConditionScore(any(), any()) } returns listOf(onlyMonitor)
         every { equipmentRepository.findByIdsForUpdate(any(), any()) } returns listOf(onlyMonitor)
-        every { equipmentRepository.saveAll(any()) } answers { firstArg() }
+        every { equipmentRepository.updateAll(any()) } answers { firstArg() }
         every { allocationProcessingRepository.complete(any(), any(), any()) } answers {
             AllocationProcessingRecord(firstArg(), secondArg(), thirdArg())
         }
@@ -110,7 +110,7 @@ class BatchAllocationServiceTest {
 
         // Exactly one equipment item reserved
         verify {
-            equipmentRepository.saveAll(match { saved -> saved.size == 1 })
+            equipmentRepository.updateAll(match { saved -> saved.size == 1 })
         }
         // One success, one failure (order depends on which command is processed first)
         verify(exactly = 1) { allocationEventPublisher.publishAllocationProcessed(any(), true, any()) }
@@ -133,7 +133,7 @@ class BatchAllocationServiceTest {
         every { allocationProcessingRepository.tryStart(any()) } returns true
         every { equipmentRepository.findAvailableWithMinConditionScore(any(), any()) } returns listOf(highScore)
         every { equipmentRepository.findByIdsForUpdate(any(), any()) } returns listOf(highScore)
-        every { equipmentRepository.saveAll(any()) } answers { firstArg() }
+        every { equipmentRepository.updateAll(any()) } answers { firstArg() }
         every { allocationProcessingRepository.complete(any(), any(), any()) } answers {
             AllocationProcessingRecord(firstArg(), secondArg(), thirdArg())
         }
@@ -192,7 +192,7 @@ class BatchAllocationServiceTest {
             equipmentRepository.findAvailableWithMinConditionScore(any(), any())
         } returns listOf(monitor)
         every { equipmentRepository.findByIdsForUpdate(any(), any()) } returns listOf(monitor)
-        every { equipmentRepository.saveAll(any()) } answers { firstArg() }
+        every { equipmentRepository.updateAll(any()) } answers { firstArg() }
         every { allocationProcessingRepository.complete(any(), any(), any()) } answers {
             AllocationProcessingRecord(firstArg(), secondArg(), thirdArg())
         }
@@ -213,7 +213,7 @@ class BatchAllocationServiceTest {
         every { allocationProcessingRepository.tryStart(any()) } returns true
         every { equipmentRepository.findAvailableWithMinConditionScore(any(), any()) } returns listOf(eq1, eq2)
         every { equipmentRepository.findByIdsForUpdate(any(), any()) } returns listOf(eq1, eq2)
-        every { equipmentRepository.saveAll(any()) } answers { firstArg() }
+        every { equipmentRepository.updateAll(any()) } answers { firstArg() }
         every { allocationProcessingRepository.complete(any(), any(), any()) } answers {
             AllocationProcessingRecord(firstArg(), secondArg(), thirdArg())
         }

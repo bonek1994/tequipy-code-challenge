@@ -38,7 +38,7 @@ class InventoryAllocationService(
             throw AllocationLockContentionException(allocationId)
         }
 
-        equipmentRepository.saveAll(selected.map { it.copy(state = EquipmentState.RESERVED) })
+        equipmentRepository.updateAll(selected.map { it.copy(state = EquipmentState.RESERVED) })
         return selectedIds
     }
 
@@ -47,7 +47,7 @@ class InventoryAllocationService(
         if (equipmentIds.isEmpty()) return
 
         val equipments = equipmentRepository.findByIds(equipmentIds)
-        equipmentRepository.saveAll(equipments.map { it.copy(state = EquipmentState.ASSIGNED) })
+        equipmentRepository.updateAll(equipments.map { it.copy(state = EquipmentState.ASSIGNED) })
     }
 
     @Transactional
@@ -55,12 +55,10 @@ class InventoryAllocationService(
         if (equipmentIds.isEmpty()) return
 
         val equipments = equipmentRepository.findByIds(equipmentIds)
-        equipmentRepository.saveAll(
+        equipmentRepository.updateAll(
             equipments.map {
                 if (it.state == EquipmentState.RESERVED) it.copy(state = EquipmentState.AVAILABLE) else it
             }
         )
     }
 }
-
-

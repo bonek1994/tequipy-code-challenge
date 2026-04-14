@@ -4,6 +4,7 @@ import com.tequipy.challenge.domain.command.ProcessAllocationCommand
 import com.tequipy.challenge.domain.model.AllocationProcessingState
 import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentState
+import com.tequipy.challenge.domain.model.EquipmentType
 import com.tequipy.challenge.domain.port.spi.AllocationEventPublisher
 import com.tequipy.challenge.domain.port.spi.AllocationProcessingRepository
 import com.tequipy.challenge.domain.port.spi.EquipmentRepository
@@ -34,8 +35,8 @@ class BatchAllocationService(
     private val metrics: BatchAllocationMetrics
 ) {
     companion object {
-        const val MAX_BATCH_SIZE = 20
-        private const val LOCK_OVERSAMPLE_FACTOR = 3
+        const val MAX_BATCH_SIZE = 500
+        private const val LOCK_OVERSAMPLE_FACTOR = 2
         private val logger = KotlinLogging.logger {}
     }
 
@@ -79,15 +80,27 @@ class BatchAllocationService(
         val allTypes  = newCommands.flatMap { it.policy.map { req -> req.type } }.toSet()
         val globalMin = newCommands.flatMap { it.policy.mapNotNull { req -> req.minimumConditionScore } }
                                    .minOrNull() ?: 0.0
-        val totalSlots = newCommands.sumOf { cmd -> cmd.policy.sumOf { it.quantity } }
 
         // ── Step 3: Single read for all candidate equipment ───────────────────
         val available = equipmentRepository.findAvailableWithMinConditionScore(allTypes, globalMin)
 
         // ── Step 4: Lock a bounded oversample (not the entire eligible pool) ──
-        // Locking only `totalSlots × factor` rows prevents the "lock everything,
-        // fail on one skip" anti-pattern in InventoryAllocationService.
-        val candidateIds = available.map { it.id }.take(totalSlots * LOCK_OVERSAMPLE_FACTOR)
+        // IMPORTANT: take per-type, not globally.
+        // Without ORDER BY the DB returns rows in index order (state, type, conditionScore),
+        // so a global `take(totalSlots × factor)` would grab items from only the first
+        // type alphabetically, starving every other type and causing mass FAILED allocations.
+        val slotsPerType: Map<EquipmentType, Int> = newCommands
+            .flatMap { it.policy }
+            .groupBy { it.type }
+            .mapValues { (_, reqs) -> reqs.sumOf { it.quantity } }
+
+        val candidateIds: List<UUID> = available
+            .groupBy { it.type }
+            .flatMap { (type, items) ->
+                val slotsForType = slotsPerType[type] ?: 0
+                items.map { it.id }.take(slotsForType * LOCK_OVERSAMPLE_FACTOR)
+            }
+
         val lockedPool: List<Equipment> = if (candidateIds.isEmpty()) {
             emptyList()
         } else {
@@ -118,7 +131,7 @@ class BatchAllocationService(
 
         // ── Step 7: Persist all reservations in one round-trip ────────────────
         if (toReserve.isNotEmpty()) {
-            equipmentRepository.saveAll(toReserve.map { it.copy(state = EquipmentState.RESERVED) })
+            equipmentRepository.updateAll(toReserve.map { it.copy(state = EquipmentState.RESERVED) })
         }
 
         // ── Step 8: Record outcomes and publish events ────────────────────────

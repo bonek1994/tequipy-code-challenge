@@ -28,20 +28,11 @@ class EquipmentJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
         )
     }
 
-    fun save(entity: EquipmentEntity): EquipmentEntity {
+    fun insert(entity: EquipmentEntity): EquipmentEntity {
         jdbcTemplate.update(
             """
             INSERT INTO equipments (id, type, brand, model, state, condition_score, purchase_date, retired_reason)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (id) DO UPDATE SET
-                type = EXCLUDED.type,
-                brand = EXCLUDED.brand,
-                model = EXCLUDED.model,
-                state = EXCLUDED.state,
-                condition_score = EXCLUDED.condition_score,
-                purchase_date = EXCLUDED.purchase_date,
-                retired_reason = EXCLUDED.retired_reason,
-                updated_at = CURRENT_TIMESTAMP
             """.trimIndent(),
             entity.id, entity.type.name, entity.brand, entity.model, entity.state.name,
             entity.conditionScore, Date.valueOf(entity.purchaseDate), entity.retiredReason
@@ -49,8 +40,29 @@ class EquipmentJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
         return findById(entity.id) ?: entity
     }
 
-    fun saveAll(entities: List<EquipmentEntity>): List<EquipmentEntity> {
-        return entities.map { save(it) }
+    fun update(entity: EquipmentEntity): EquipmentEntity {
+        jdbcTemplate.update(
+            """
+            UPDATE equipments SET
+                type            = ?,
+                brand           = ?,
+                model           = ?,
+                state           = ?,
+                condition_score = ?,
+                purchase_date   = ?,
+                retired_reason  = ?,
+                updated_at      = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """.trimIndent(),
+            entity.type.name, entity.brand, entity.model, entity.state.name,
+            entity.conditionScore, Date.valueOf(entity.purchaseDate), entity.retiredReason,
+            entity.id
+        )
+        return findById(entity.id) ?: entity
+    }
+
+    fun updateAll(entities: List<EquipmentEntity>): List<EquipmentEntity> {
+        return entities.map { update(it) }
     }
 
     fun findById(id: UUID): EquipmentEntity? {

@@ -34,7 +34,7 @@ class InventoryAllocationServiceTest {
 
         assertNull(result)
         verify(exactly = 0) { equipmentRepository.findByIdsForUpdate(any(), any()) }
-        verify(exactly = 0) { equipmentRepository.saveAll(any()) }
+        verify(exactly = 0) { equipmentRepository.updateAll(any()) }
     }
 
     @Test
@@ -51,7 +51,7 @@ class InventoryAllocationServiceTest {
         assertThrows(AllocationLockContentionException::class.java) {
             service.reserveForAllocation(allocationId, policy)
         }
-        verify(exactly = 0) { equipmentRepository.saveAll(any()) }
+        verify(exactly = 0) { equipmentRepository.updateAll(any()) }
     }
 
     @Test
@@ -64,13 +64,13 @@ class InventoryAllocationServiceTest {
 
         every { equipmentRepository.findAvailableWithMinConditionScore(setOf(EquipmentType.MONITOR), 0.8) } returns listOf(selectedEquipment)
         every { equipmentRepository.findByIdsForUpdate(listOf(selectedEquipment.id), 0.8) } returns listOf(selectedEquipment)
-        every { equipmentRepository.saveAll(any()) } answers { firstArg() }
+        every { equipmentRepository.updateAll(any()) } answers { firstArg() }
 
         val result = service.reserveForAllocation(allocationId, policy)
 
         assertEquals(listOf(selectedEquipment.id), result)
         verify {
-            equipmentRepository.saveAll(match { saved ->
+            equipmentRepository.updateAll(match { saved ->
                 saved.size == 1 && saved.single().id == selectedEquipment.id && saved.single().state == EquipmentState.RESERVED
             })
         }
@@ -81,12 +81,12 @@ class InventoryAllocationServiceTest {
         val equipmentId = UUID.randomUUID()
         val equipment = equipment(id = equipmentId, type = EquipmentType.MONITOR, conditionScore = 0.92, state = EquipmentState.RESERVED)
         every { equipmentRepository.findByIds(listOf(equipmentId)) } returns listOf(equipment)
-        every { equipmentRepository.saveAll(any()) } answers { firstArg() }
+        every { equipmentRepository.updateAll(any()) } answers { firstArg() }
 
         service.confirmReservedEquipment(listOf(equipmentId))
 
         verify {
-            equipmentRepository.saveAll(match { saved ->
+            equipmentRepository.updateAll(match { saved ->
                 saved.size == 1 && saved.single().id == equipmentId && saved.single().state == EquipmentState.ASSIGNED
             })
         }
@@ -97,12 +97,12 @@ class InventoryAllocationServiceTest {
         val reserved = equipment(type = EquipmentType.MONITOR, conditionScore = 0.92, state = EquipmentState.RESERVED)
         val assigned = equipment(type = EquipmentType.MONITOR, conditionScore = 0.88, state = EquipmentState.ASSIGNED)
         every { equipmentRepository.findByIds(listOf(reserved.id, assigned.id)) } returns listOf(reserved, assigned)
-        every { equipmentRepository.saveAll(any()) } answers { firstArg() }
+        every { equipmentRepository.updateAll(any()) } answers { firstArg() }
 
         service.releaseReservedEquipment(listOf(reserved.id, assigned.id))
 
         verify {
-            equipmentRepository.saveAll(match { saved ->
+            equipmentRepository.updateAll(match { saved ->
                 saved.size == 2 &&
                     saved.any { it.id == reserved.id && it.state == EquipmentState.AVAILABLE } &&
                     saved.any { it.id == assigned.id && it.state == EquipmentState.ASSIGNED }

@@ -29,7 +29,7 @@ class AllocationAlgorithm {
 
         // Count how many slots compete for the same constraint group so
         // the candidate limit always scales with the request size.
-        data class SlotKey(val type: EquipmentType, val minScore: Double?)
+
         val slotsPerGroup = slots.groupingBy { SlotKey(it.type, it.minimumConditionScore) }.eachCount()
 
         // Pre-sort and limit candidates per slot to top-K by score.
@@ -94,4 +94,6 @@ class AllocationAlgorithm {
         val conditionScore = equipment.conditionScore
         return brandScore + conditionScore
     }
+
+    data class SlotKey(val type: EquipmentType, val minScore: Double?)
 }
