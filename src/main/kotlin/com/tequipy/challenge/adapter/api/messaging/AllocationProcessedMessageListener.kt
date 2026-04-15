@@ -1,5 +1,6 @@
 package com.tequipy.challenge.adapter.api.messaging
 
+import com.tequipy.challenge.adapter.api.messaging.events.EquipmentAllocated
 import com.tequipy.challenge.config.RabbitMQConfig
 import com.tequipy.challenge.domain.command.CompleteAllocationCommand
 import com.tequipy.challenge.domain.port.api.CompleteAllocationUseCase
@@ -17,14 +18,16 @@ class AllocationProcessedMessageListener(
         queues = [RabbitMQConfig.ALLOCATION_RESULT_QUEUE],
         containerFactory = "allocationResultListenerContainerFactory"
     )
-    fun onAllocationProcessed(message: AllocationProcessedMessage) {
-        logger.info { "Received allocation processed message: id=${message.id}" }
-        completeAllocationUseCase.completeAllocation(
-            CompleteAllocationCommand(
-                allocationId = message.id,
-                success = message.success,
-                allocatedEquipmentIds = message.allocatedEquipmentIds
-            )
+    fun onAllocationProcessed(message: EquipmentAllocated) {
+        logger.info { "Received allocation processed batch message with ${message.results.size} result(s)" }
+        completeAllocationUseCase.completeAllocations(
+            message.results.map { result ->
+                CompleteAllocationCommand(
+                    allocationId = result.id,
+                    success = result.success,
+                    allocatedEquipmentIds = result.allocatedEquipmentIds
+                )
+            }
         )
     }
 }

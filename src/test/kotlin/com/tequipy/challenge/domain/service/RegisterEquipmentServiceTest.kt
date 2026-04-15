@@ -22,7 +22,7 @@ class RegisterEquipmentServiceTest {
     @Test
     fun `registerEquipment should save available equipment`() {
         val purchaseDate = LocalDate.of(2025, 1, 10)
-        every { equipmentRepository.save(any()) } answers { firstArg() }
+        every { equipmentRepository.create(any()) } answers { firstArg() }
 
         val result = service.registerEquipment(
             RegisterEquipmentCommand(
@@ -35,7 +35,7 @@ class RegisterEquipmentServiceTest {
         )
 
         assertEquals(EquipmentState.AVAILABLE, result.state)
-        verify { equipmentRepository.save(withArg { assertEquals(EquipmentState.AVAILABLE, it.state) }) }
+        verify { equipmentRepository.create(withArg { assertEquals(EquipmentState.AVAILABLE, it.state) }) }
     }
 
     @Test
@@ -55,7 +55,7 @@ class RegisterEquipmentServiceTest {
 
     @Test
     fun `registerEquipment should allow boundary condition scores`() {
-        every { equipmentRepository.save(any()) } answers { firstArg() }
+        every { equipmentRepository.create(any()) } answers { firstArg() }
 
         val minResult = service.registerEquipment(
             RegisterEquipmentCommand(
@@ -78,7 +78,7 @@ class RegisterEquipmentServiceTest {
 
         assertEquals(0.0, minResult.conditionScore)
         assertEquals(1.0, maxResult.conditionScore)
-        verify(exactly = 2) { equipmentRepository.save(any()) }
+        verify(exactly = 2) { equipmentRepository.create(any()) }
     }
 
     @Test
@@ -113,4 +113,3 @@ class RegisterEquipmentServiceTest {
         )
     }
 }
-

@@ -6,9 +6,9 @@ import com.tequipy.challenge.domain.NotFoundException
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
-import org.springframework.web.bind.MethodArgumentNotValidException
 
 @RestControllerAdvice
 class GlobalExceptionHandler {
@@ -16,31 +16,23 @@ class GlobalExceptionHandler {
     private val logger = KotlinLogging.logger {}
 
     @ExceptionHandler(NotFoundException::class)
-    fun handleNotFoundException(ex: NotFoundException): ResponseEntity<Map<String, String>> {
-        logger.warn { "Resource not found: ${ex.message}" }
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-            .body(mapOf("error" to (ex.message ?: "Not found")))
-    }
+    fun handleNotFound(ex: NotFoundException) = errorResponse(HttpStatus.NOT_FOUND, ex)
 
     @ExceptionHandler(BadRequestException::class)
-    fun handleBadRequestException(ex: BadRequestException): ResponseEntity<Map<String, String>> {
-        logger.warn { "Bad request: ${ex.message}" }
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-            .body(mapOf("error" to (ex.message ?: "Bad request")))
-    }
+    fun handleBadRequest(ex: BadRequestException) = errorResponse(HttpStatus.BAD_REQUEST, ex)
 
     @ExceptionHandler(ConflictException::class)
-    fun handleConflictException(ex: ConflictException): ResponseEntity<Map<String, String>> {
-        logger.warn { "Conflict: ${ex.message}" }
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-            .body(mapOf("error" to (ex.message ?: "Conflict")))
-    }
+    fun handleConflict(ex: ConflictException) = errorResponse(HttpStatus.CONFLICT, ex)
 
     @ExceptionHandler(MethodArgumentNotValidException::class)
-    fun handleValidationException(ex: MethodArgumentNotValidException): ResponseEntity<Map<String, String>> {
+    fun handleValidation(ex: MethodArgumentNotValidException): ResponseEntity<Map<String, String>> {
         val message = ex.bindingResult.fieldErrors.firstOrNull()?.defaultMessage ?: "Validation failed"
         logger.warn { "Validation failed: $message" }
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-            .body(mapOf("error" to message))
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapOf("error" to message))
+    }
+
+    private fun errorResponse(status: HttpStatus, ex: RuntimeException): ResponseEntity<Map<String, String>> {
+        logger.warn { "${status.reasonPhrase}: ${ex.message}" }
+        return ResponseEntity.status(status).body(mapOf("error" to (ex.message ?: status.reasonPhrase)))
     }
 }

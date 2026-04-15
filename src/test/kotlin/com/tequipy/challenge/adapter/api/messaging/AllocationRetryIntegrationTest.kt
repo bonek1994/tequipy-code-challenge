@@ -1,13 +1,12 @@
 package com.tequipy.challenge.adapter.api.messaging
 
+import com.tequipy.challenge.adapter.api.messaging.events.AllocationCreated
 import com.tequipy.challenge.config.RabbitMQConfig
-import com.tequipy.challenge.domain.AllocationLockContentionException
-import com.tequipy.challenge.domain.port.api.ProcessAllocationUseCase
+import com.tequipy.challenge.domain.service.BatchAllocationService
 import org.awaitility.Awaitility.await
-import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
-import org.mockito.kotlin.any
 import org.mockito.Mockito
+import org.mockito.kotlin.any
 import org.springframework.amqp.core.AmqpTemplate
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -21,12 +20,24 @@ import org.testcontainers.junit.jupiter.Testcontainers
 import java.time.Duration
 import java.util.UUID
 
+/**
+ * Integration test for the batch allocation pipeline.
+ *
+ * With the batch design the [AllocationMessageListener] no longer calls
+ * [com.tequipy.challenge.domain.port.api.ProcessAllocationUseCase] directly.
+ * Instead it submits each incoming message to [com.tequipy.challenge.domain.service.BatchAllocationCollector],
+ * which flushes to [BatchAllocationService] when the batch is full or the window expires.
+ *
+ * This test verifies that messages sent to `allocation.queue` are received, collected, and
+ * forwarded to [BatchAllocationService.processBatch] within the configured window.
+ * A short window (`tequipy.batch-allocation.window-ms=500`) keeps the test fast.
+ */
 @SpringBootTest
 @Testcontainers
 class AllocationRetryIntegrationTest {
 
     @MockBean
-    private lateinit var processAllocationUseCase: ProcessAllocationUseCase
+    private lateinit var batchAllocationService: BatchAllocationService
 
     @Autowired
     private lateinit var amqpTemplate: AmqpTemplate
@@ -51,30 +62,26 @@ class AllocationRetryIntegrationTest {
             registry.add("spring.rabbitmq.port", rabbitmq::getAmqpPort)
             registry.add("spring.rabbitmq.username", rabbitmq::getAdminUsername)
             registry.add("spring.rabbitmq.password", rabbitmq::getAdminPassword)
-            registry.add(RabbitMQConfig.ALLOCATION_RETRY_ATTEMPTS_PROPERTY) { 1 }
+            // Short batch window so the test doesn't wait 5 s
+            registry.add("tequipy.batch-allocation.window-ms") { 500 }
         }
     }
 
     @Test
-    fun `message should be routed to DLQ after 1 consecutive AllocationLockContentionException`() {
-        // given: processor always throws lock contention
+    fun `message sent to allocation queue should be forwarded to BatchAllocationService within the window`() {
+        // given
         val allocationId = UUID.randomUUID()
-        Mockito.doThrow(AllocationLockContentionException(allocationId))
-            .`when`(processAllocationUseCase).processAllocation(any())
+        val message = AllocationCreated(id = allocationId, policy = emptyList())
 
-        // when: send a typed AllocationRequestedMessage object directly to the allocation queue
-        val message = AllocationRequestedMessage(id = allocationId, policy = emptyList())
+        // when
         amqpTemplate.convertAndSend(RabbitMQConfig.ALLOCATION_QUEUE, message)
 
-        // then: message should appear in DLQ after retry exhaustion
-        val dlqMessage = await()
-            .atMost(Duration.ofSeconds(60))
-            .pollInterval(Duration.ofMillis(500))
-            .until({ amqpTemplate.receiveAndConvert(RabbitMQConfig.ALLOCATION_DLQ) }, { it != null })
-        assertNotNull(dlqMessage, "Message should be routed to DLQ after 1 retry attempt")
-
-        // verify that the processor was invoked exactly once
-        Mockito.verify(processAllocationUseCase, Mockito.timeout(30_000).times(1))
-            .processAllocation(any())
+        // then: processBatch must be called within 10 s (window is 500 ms)
+        await()
+            .atMost(Duration.ofSeconds(10))
+            .pollInterval(Duration.ofMillis(200))
+            .untilAsserted {
+                Mockito.verify(batchAllocationService, Mockito.atLeastOnce()).processBatch(any())
+            }
     }
 }

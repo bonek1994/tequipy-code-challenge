@@ -15,14 +15,20 @@ class EquipmentPersistenceAdapter(
     private val mapper: EquipmentEntityMapper
 ) : EquipmentRepository {
 
-    override fun save(equipment: Equipment): Equipment {
+    override fun create(equipment: Equipment): Equipment {
         val entity = mapper.toEntity(equipment)
-        val saved = jdbcRepository.save(entity)
+        val saved = jdbcRepository.insert(entity)
         return mapper.toDomain(saved)
     }
 
-    override fun saveAll(equipment: List<Equipment>): List<Equipment> {
-        return jdbcRepository.saveAll(equipment.map(mapper::toEntity)).map(mapper::toDomain)
+    override fun update(equipment: Equipment): Equipment {
+        val entity = mapper.toEntity(equipment)
+        val saved = jdbcRepository.update(entity)
+        return mapper.toDomain(saved)
+    }
+
+    override fun updateAll(equipment: List<Equipment>): List<Equipment> {
+        return jdbcRepository.updateAll(equipment.map(mapper::toEntity)).map(mapper::toDomain)
     }
 
     override fun findById(id: UUID): Equipment? {

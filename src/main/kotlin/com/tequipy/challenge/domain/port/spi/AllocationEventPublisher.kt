@@ -1,6 +1,7 @@
 package com.tequipy.challenge.domain.port.spi
 
 import com.tequipy.challenge.domain.model.AllocationEntity
+import com.tequipy.challenge.domain.model.AllocationProcessedResult
 import java.util.UUID
 
 interface AllocationEventPublisher {
@@ -11,5 +12,7 @@ interface AllocationEventPublisher {
         success: Boolean,
         allocatedEquipmentIds: List<UUID> = emptyList()
     )
+
+    fun publishAllocationProcessedBatch(results: List<AllocationProcessedResult>)
 }
 

@@ -4,6 +4,7 @@ import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.model.EquipmentType
+import java.util.UUID
 
 class AllocationAlgorithm {
 
@@ -16,67 +17,55 @@ class AllocationAlgorithm {
          * This keeps the search space bounded while giving the algorithm enough
          * room to find a globally optimal combination.
          */
-        const val CANDIDATE_MULTIPLIER = 4
+        const val CANDIDATE_MULTIPLIER = 3
+
+        /**
+         * Score bonus applied to equipment whose brand matches the preferred brand
+         * in a policy requirement. Used both by the algorithm and by the batch
+         * service when pre-ranking candidates before locking.
+         */
+        const val BRAND_BONUS = 10.0
     }
 
     fun allocate(
         policy: List<EquipmentPolicyRequirement>,
         availableEquipment: List<Equipment>
     ): List<Equipment>? {
-        val eligibleEquipment = availableEquipment.filter { it.state == EquipmentState.AVAILABLE }
-        val slots = policy.flatMap { requirement -> List(requirement.quantity) { requirement.copy(quantity = 1) } }
+        val eligible = availableEquipment.filter { it.state == EquipmentState.AVAILABLE }
+        val slots = policy.flatMap { req -> List(req.quantity) { req.copy(quantity = 1) } }
         if (slots.isEmpty()) return emptyList()
 
-        // Count how many slots compete for the same constraint group so
-        // the candidate limit always scales with the request size.
-        data class SlotKey(val type: EquipmentType, val minScore: Double?)
-        val slotsPerGroup = slots.groupingBy { SlotKey(it.type, it.minimumConditionScore) }.eachCount()
+        val slotsPerGroup = slots.groupingBy { it.constraintKey() }.eachCount()
 
-        // Pre-sort and limit candidates per slot to top-K by score.
-        // K = groupSize × CANDIDATE_MULTIPLIER — enough headroom for the
-        // backtracking search, scales naturally with request size.
-        val candidatesPerSlot = slots.map { requirement ->
-            val groupSize = slotsPerGroup[SlotKey(requirement.type, requirement.minimumConditionScore)] ?: 1
-            val limit = groupSize * CANDIDATE_MULTIPLIER
-            eligibleEquipment.filter { equipment ->
-                equipment.type == requirement.type &&
-                    (requirement.minimumConditionScore == null || equipment.conditionScore >= requirement.minimumConditionScore)
-            }.sortedByDescending { scoreCandidate(it, requirement) }
-             .take(limit)
+        val candidatesPerSlot = slots.map { slot ->
+            val groupSize = slotsPerGroup[slot.constraintKey()] ?: 1
+            eligible
+                .filter { it.matchesHardConstraints(slot) }
+                .sortedByDescending { it.score(slot) }
+                .take(groupSize * CANDIDATE_MULTIPLIER)
         }
 
         if (candidatesPerSlot.any { it.isEmpty() }) return null
 
-        val indexedSlots = slots.indices.sortedBy { candidatesPerSlot[it].size }
+        val processingOrder = slots.indices.sortedBy { candidatesPerSlot[it].size }
 
         var bestScore = Double.NEGATIVE_INFINITY
         var bestSelection: List<Equipment>? = null
 
-        fun search(position: Int, usedIds: MutableSet<java.util.UUID>, chosen: MutableList<Equipment>, score: Double) {
-            if (position == indexedSlots.size) {
+        fun search(pos: Int, usedIds: MutableSet<UUID>, chosen: MutableList<Equipment>, score: Double) {
+            if (pos == processingOrder.size) {
                 if (score > bestScore) {
                     bestScore = score
                     bestSelection = chosen.toList()
                 }
                 return
             }
-
-            val slotIndex = indexedSlots[position]
-            val requirement = slots[slotIndex]
-            val candidates = candidatesPerSlot[slotIndex]
-                .filterNot { usedIds.contains(it.id) }
-
-            if (candidates.isEmpty()) return
-
+            val slotIdx = processingOrder[pos]
+            val candidates = candidatesPerSlot[slotIdx].filterNot { it.id in usedIds }
             for (candidate in candidates) {
                 usedIds += candidate.id
                 chosen += candidate
-                search(
-                    position + 1,
-                    usedIds,
-                    chosen,
-                    score + scoreCandidate(candidate, requirement)
-                )
+                search(pos + 1, usedIds, chosen, score + candidate.score(slots[slotIdx]))
                 chosen.removeAt(chosen.lastIndex)
                 usedIds -= candidate.id
             }
@@ -86,12 +75,15 @@ class AllocationAlgorithm {
         return bestSelection
     }
 
-    private fun scoreCandidate(
-        equipment: Equipment,
-        requirement: EquipmentPolicyRequirement
-    ): Double {
-        val brandScore = if (requirement.preferredBrand != null && equipment.brand.equals(requirement.preferredBrand, ignoreCase = true)) 10.0 else 0.0
-        val conditionScore = equipment.conditionScore
-        return brandScore + conditionScore
+    private fun Equipment.matchesHardConstraints(req: EquipmentPolicyRequirement): Boolean =
+        type == req.type && (req.minimumConditionScore == null || conditionScore >= req.minimumConditionScore)
+
+    private fun Equipment.score(req: EquipmentPolicyRequirement): Double {
+        val brandBonus = if (req.preferredBrand?.equals(brand, ignoreCase = true) == true) BRAND_BONUS else 0.0
+        return brandBonus + conditionScore
     }
+
+    private fun EquipmentPolicyRequirement.constraintKey() = ConstraintKey(type, minimumConditionScore)
+
+    private data class ConstraintKey(val type: EquipmentType, val minScore: Double?)
 }

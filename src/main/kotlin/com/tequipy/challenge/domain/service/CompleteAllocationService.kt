@@ -1,6 +1,7 @@
 package com.tequipy.challenge.domain.service
 
 import com.tequipy.challenge.domain.command.CompleteAllocationCommand
+import com.tequipy.challenge.domain.model.AllocationCompletion
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.port.api.CompleteAllocationUseCase
 import com.tequipy.challenge.domain.port.spi.AllocationRepository
@@ -12,25 +13,28 @@ import org.springframework.transaction.annotation.Transactional
 class CompleteAllocationService(
     private val allocationRepository: AllocationRepository
 ) : CompleteAllocationUseCase {
+
     private val logger = KotlinLogging.logger {}
 
     @Transactional
-    override fun completeAllocation(command: CompleteAllocationCommand) {
-        val targetState = if (command.success) AllocationState.ALLOCATED else AllocationState.FAILED
-        val applied = allocationRepository.completePending(
-            id = command.allocationId,
-            state = targetState,
-            allocatedEquipmentIds = if (command.success) command.allocatedEquipmentIds else emptyList()
-        )
+    override fun completeAllocations(commands: List<CompleteAllocationCommand>) {
+        if (commands.isEmpty()) return
 
-        if (applied == null) {
-            logger.info {
-                "Ignoring allocation completed command for id=${command.allocationId} because allocation is missing or no longer pending"
+        val completions = commands.map { it.toCompletion() }
+        val appliedById = allocationRepository.completePendingBatch(completions).associateBy { it.id }
+
+        commands.forEach { cmd ->
+            if (cmd.allocationId in appliedById) {
+                logger.info { "Applied allocation completed: id=${cmd.allocationId}, state=${appliedById[cmd.allocationId]?.state}" }
+            } else {
+                logger.info { "Skipped allocation ${cmd.allocationId}: missing or no longer pending" }
             }
-            return
         }
-
-        logger.info { "Applied allocation completed command: id=${command.allocationId}, state=${applied.state}" }
     }
-}
 
+    private fun CompleteAllocationCommand.toCompletion() = AllocationCompletion(
+        allocationId = allocationId,
+        state = if (success) AllocationState.ALLOCATED else AllocationState.FAILED,
+        allocatedEquipmentIds = if (success) allocatedEquipmentIds else emptyList()
+    )
+}

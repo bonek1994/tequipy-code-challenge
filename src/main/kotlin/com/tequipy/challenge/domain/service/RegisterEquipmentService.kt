@@ -38,7 +38,7 @@ class RegisterEquipmentService(
             purchaseDate = command.purchaseDate,
             retiredReason = null
         )
-        val saved = equipmentRepository.save(equipment)
+        val saved = equipmentRepository.create(equipment)
         logger.info { "Equipment registered: id=${saved.id}" }
         return saved
     }

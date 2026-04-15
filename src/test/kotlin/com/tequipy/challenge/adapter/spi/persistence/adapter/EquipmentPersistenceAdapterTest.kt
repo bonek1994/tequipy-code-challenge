@@ -45,27 +45,40 @@ class EquipmentPersistenceAdapterTest {
     )
 
     @Test
-    fun `save delegates to repository and maps result`() {
+    fun `create delegates to repository and maps result`() {
         every { mapper.toEntity(domainEquipment) } returns entityEquipment
-        every { jdbcRepository.save(entityEquipment) } returns entityEquipment
+        every { jdbcRepository.insert(entityEquipment) } returns entityEquipment
         every { mapper.toDomain(entityEquipment) } returns domainEquipment
 
-        val result = adapter.save(domainEquipment)
+        val result = adapter.create(domainEquipment)
 
         assertEquals(domainEquipment, result)
-        verify { jdbcRepository.save(entityEquipment) }
+        verify { jdbcRepository.insert(entityEquipment) }
     }
 
     @Test
-    fun `saveAll delegates to repository and maps results`() {
+    fun `update delegates to repository and maps result`() {
         every { mapper.toEntity(domainEquipment) } returns entityEquipment
-        every { jdbcRepository.saveAll(listOf(entityEquipment)) } returns listOf(entityEquipment)
+        every { jdbcRepository.update(entityEquipment) } returns entityEquipment
         every { mapper.toDomain(entityEquipment) } returns domainEquipment
 
-        val result = adapter.saveAll(listOf(domainEquipment))
+        val result = adapter.update(domainEquipment)
+
+        assertEquals(domainEquipment, result)
+        verify { jdbcRepository.update(entityEquipment) }
+    }
+
+    @Test
+    fun `updateAll delegates to repository and maps results`() {
+        every { mapper.toEntity(domainEquipment) } returns entityEquipment
+        every { jdbcRepository.updateAll(listOf(entityEquipment)) } returns listOf(entityEquipment)
+        every { mapper.toDomain(entityEquipment) } returns domainEquipment
+
+        val result = adapter.updateAll(listOf(domainEquipment))
 
         assertEquals(1, result.size)
         assertEquals(domainEquipment, result[0])
+        verify { jdbcRepository.updateAll(listOf(entityEquipment)) }
     }
 
     @Test

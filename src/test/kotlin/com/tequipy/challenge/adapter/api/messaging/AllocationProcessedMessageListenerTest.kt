@@ -1,5 +1,6 @@
 package com.tequipy.challenge.adapter.api.messaging
 
+import com.tequipy.challenge.adapter.api.messaging.events.EquipmentAllocated
 import com.tequipy.challenge.domain.command.CompleteAllocationCommand
 import com.tequipy.challenge.domain.port.api.CompleteAllocationUseCase
 import io.mockk.mockk
@@ -13,48 +14,42 @@ class AllocationProcessedMessageListenerTest {
     private val listener = AllocationProcessedMessageListener(completeAllocationUseCase)
 
     @Test
-    fun `onAllocationProcessed should delegate successful result to use case`() {
-        val allocationId = UUID.randomUUID()
+    fun `onAllocationProcessed should delegate batch results to use case`() {
+        val firstAllocationId = UUID.randomUUID()
+        val secondAllocationId = UUID.randomUUID()
         val equipmentIds = listOf(UUID.fromString("11111111-1111-1111-1111-111111111111"))
-
-        listener.onAllocationProcessed(
-            AllocationProcessedMessage(
-                id = allocationId,
-                success = true,
-                allocatedEquipmentIds = equipmentIds
-            )
-        )
-
-        verify {
-            completeAllocationUseCase.completeAllocation(
-                CompleteAllocationCommand(
-                    allocationId = allocationId,
-                    success = true,
-                    allocatedEquipmentIds = equipmentIds
-                )
-            )
-        }
-    }
-
-    @Test
-    fun `onAllocationProcessed should delegate failed result to use case`() {
-        val allocationId = UUID.randomUUID()
         val staleEquipmentIds = listOf(UUID.randomUUID())
 
         listener.onAllocationProcessed(
-            AllocationProcessedMessage(
-                id = allocationId,
-                success = false,
-                allocatedEquipmentIds = staleEquipmentIds
+            EquipmentAllocated(
+                results = listOf(
+                    EquipmentAllocated.AllocationProcessedResultMessage(
+                        id = firstAllocationId,
+                        success = true,
+                        allocatedEquipmentIds = equipmentIds
+                    ),
+                    EquipmentAllocated.AllocationProcessedResultMessage(
+                        id = secondAllocationId,
+                        success = false,
+                        allocatedEquipmentIds = staleEquipmentIds
+                    )
+                )
             )
         )
 
         verify {
-            completeAllocationUseCase.completeAllocation(
-                CompleteAllocationCommand(
-                    allocationId = allocationId,
-                    success = false,
-                    allocatedEquipmentIds = staleEquipmentIds
+            completeAllocationUseCase.completeAllocations(
+                listOf(
+                    CompleteAllocationCommand(
+                        allocationId = firstAllocationId,
+                        success = true,
+                        allocatedEquipmentIds = equipmentIds
+                    ),
+                    CompleteAllocationCommand(
+                        allocationId = secondAllocationId,
+                        success = false,
+                        allocatedEquipmentIds = staleEquipmentIds
+                    )
                 )
             )
         }

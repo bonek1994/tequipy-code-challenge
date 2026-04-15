@@ -2,6 +2,7 @@ package com.tequipy.challenge.adapter.spi.persistence.adapter
 
 import com.tequipy.challenge.adapter.spi.persistence.mapper.AllocationEntityMapper
 import com.tequipy.challenge.adapter.spi.persistence.repository.AllocationJdbcRepository
+import com.tequipy.challenge.domain.model.AllocationCompletion
 import com.tequipy.challenge.domain.model.AllocationEntity
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.port.spi.AllocationRepository
@@ -29,6 +30,10 @@ class AllocationPersistenceAdapter(
 
     override fun completePending(id: UUID, state: AllocationState, allocatedEquipmentIds: List<UUID>): AllocationEntity? {
         return jdbcRepository.completePending(id, state, allocatedEquipmentIds)?.let(mapper::toDomain)
+    }
+
+    override fun completePendingBatch(completions: List<AllocationCompletion>): List<AllocationEntity> {
+        return jdbcRepository.completePendingBatch(completions).map(mapper::toDomain)
     }
 }
 

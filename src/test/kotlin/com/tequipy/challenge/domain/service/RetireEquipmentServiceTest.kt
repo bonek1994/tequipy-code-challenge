@@ -26,7 +26,7 @@ class RetireEquipmentServiceTest {
         val existing = sampleEquipment(id = id, state = EquipmentState.AVAILABLE)
         val retired = existing.copy(state = EquipmentState.RETIRED, retiredReason = "Broken hinge")
         every { equipmentRepository.findById(id) } returns existing
-        every { equipmentRepository.save(any()) } returns retired
+        every { equipmentRepository.update(any()) } returns retired
 
         val result = service.retireEquipment(RetireEquipmentCommand(id, "Broken hinge"))
 

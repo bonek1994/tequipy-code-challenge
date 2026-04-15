@@ -33,7 +33,7 @@ class RetireEquipmentService(
         }
 
         logger.info { "Retiring equipment: id=${command.id}" }
-        val retired = equipmentRepository.save(
+        val retired = equipmentRepository.update(
             equipment.copy(
                 state = EquipmentState.RETIRED,
                 retiredReason = command.reason

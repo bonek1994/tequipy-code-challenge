@@ -6,8 +6,9 @@ import com.tequipy.challenge.domain.model.EquipmentType
 import java.util.UUID
 
 interface EquipmentRepository {
-    fun save(equipment: Equipment): Equipment
-    fun saveAll(equipment: List<Equipment>): List<Equipment>
+    fun create(equipment: Equipment): Equipment
+    fun update(equipment: Equipment): Equipment
+    fun updateAll(equipment: List<Equipment>): List<Equipment>
     fun findById(id: UUID): Equipment?
     fun findAll(): List<Equipment>
     fun findByIds(ids: List<UUID>): List<Equipment>
