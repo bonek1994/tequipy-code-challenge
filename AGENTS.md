@@ -26,7 +26,7 @@ The code follows a ports-and-adapters / hexagonal style, but the actual package 
 - `domain/service` - application services and business rules
 - `domain/port/api` - use case interfaces
 - `domain/port/spi` - repository / messaging / inventory ports
-- `config` - Spring configuration
+- `config` - Spring configuration, including async/scheduling support and RabbitMQ queues / listener container factories
 
 ## Trust order
 
@@ -70,9 +70,10 @@ Do not assume `/api/...` prefixes.
 - `ConfirmAllocationUseCase`
 - `CancelAllocationUseCase`
 - `ProcessAllocationUseCase`
+- `CompleteAllocationUseCase`
 
 ### Command objects
-- `domain/command/ProcessAllocationCommand.kt` is the current command used by messaging/application flow.
+- `domain/command/ProcessAllocationCommand.kt` and `domain/command/CompleteAllocationCommand.kt` are the current commands used by messaging/application flow.
 
 ## Core domain rules
 
@@ -117,14 +118,15 @@ Current flow is:
 
 1. `CreateAllocationService` validates policy, saves a `PENDING` allocation, and publishes the created message through `AllocationEventPublisher`.
 2. `RabbitMQAllocationEventPublisher` publishes `AllocationRequestedMessage` to `allocation.queue` **after transaction commit**.
-3. `AllocationMessageListener` maps `AllocationRequestedMessage` to `domain.command.ProcessAllocationCommand` and calls `ProcessAllocationUseCase`.
-4. `ProcessAllocationService` is idempotent through `AllocationProcessingRepository`, uses `InventoryAllocationPort` to select and reserve equipment, stores the result, and republishes the outcome.
-5. `AllocationProcessedMessageListener` applies the final `ALLOCATED` / `FAILED` state to the allocation row only if it is still `PENDING`.
+3. `AllocationMessageListener` maps `AllocationRequestedMessage` to `domain.command.ProcessAllocationCommand` and submits it to `BatchAllocationCollector`.
+4. `BatchAllocationCollector` buffers commands in memory and flushes them to `BatchAllocationService` when the batch reaches `MAX_BATCH_SIZE` or when the scheduled `tequipy.batch-allocation.window-ms` delay expires.
+5. `BatchAllocationService` is idempotent through `AllocationProcessingRepository`, uses `InventoryAllocationPort` to select and reserve equipment in one batch transaction, stores the result, and republishes an `EquipmentAllocated` batch message (containing `AllocationProcessedResult` items) to `allocation.result.queue`.
+6. `AllocationProcessedMessageListener` consumes `allocation.result.queue` with a dedicated listener container and applies the final `ALLOCATED` / `FAILED` state to the allocation row through `CompleteAllocationUseCase` only if it is still `PENDING`.
 
 Important caveat:
 - duplicate allocation processing is expected and must remain safe
 - `AllocationLockContentionException` is used to trigger Rabbit retry and eventual DLQ routing
-- do not break idempotency in `ProcessAllocationUseCase` / `AllocationProcessingRepository`
+- do not break idempotency in `ProcessAllocationUseCase`, `BatchAllocationService`, or `AllocationProcessingRepository`
 
 ## Allocation algorithm behavior
 
@@ -167,17 +169,25 @@ Preserve this behavior unless the task explicitly changes the API contract.
 - `src/main/kotlin/com/tequipy/challenge/adapter/api/web/AllocationController.kt`
 - `src/main/kotlin/com/tequipy/challenge/adapter/api/messaging/AllocationMessageListener.kt`
 - `src/main/kotlin/com/tequipy/challenge/adapter/api/messaging/AllocationProcessedMessageListener.kt`
+- `src/main/kotlin/com/tequipy/challenge/config/AsyncConfig.kt`
+- `src/main/kotlin/com/tequipy/challenge/config/RabbitMQConfig.kt`
 - `src/main/kotlin/com/tequipy/challenge/domain/service/CreateAllocationService.kt`
 - `src/main/kotlin/com/tequipy/challenge/domain/service/ProcessAllocationService.kt`
+- `src/main/kotlin/com/tequipy/challenge/domain/service/BatchAllocationCollector.kt`
+- `src/main/kotlin/com/tequipy/challenge/domain/service/BatchAllocationService.kt`
+- `src/main/kotlin/com/tequipy/challenge/domain/service/BatchAllocationMetrics.kt`
 - `src/main/kotlin/com/tequipy/challenge/domain/service/ConfirmAllocationService.kt`
 - `src/main/kotlin/com/tequipy/challenge/domain/service/CancelAllocationService.kt`
 - `src/main/kotlin/com/tequipy/challenge/domain/service/AllocationAlgorithm.kt`
 - `src/main/kotlin/com/tequipy/challenge/domain/command/ProcessAllocationCommand.kt`
+- `src/main/kotlin/com/tequipy/challenge/domain/command/CompleteAllocationCommand.kt`
 - `src/test/kotlin/com/tequipy/challenge/adapter/api/web/AllocationControllerIntegrationTest.kt`
 - `src/test/kotlin/com/tequipy/challenge/adapter/api/messaging/AllocationMessageListenerTest.kt`
+- `src/test/kotlin/com/tequipy/challenge/adapter/api/messaging/AllocationProcessedMessageListenerTest.kt`
 - `src/test/kotlin/com/tequipy/challenge/adapter/api/messaging/AllocationRetryIntegrationTest.kt`
 - `src/test/kotlin/com/tequipy/challenge/domain/service/CreateAllocationServiceTest.kt`
 - `src/test/kotlin/com/tequipy/challenge/domain/service/ProcessAllocationServiceTest.kt`
+- `src/test/kotlin/com/tequipy/challenge/domain/service/BatchAllocationServiceTest.kt`
 - `src/test/kotlin/com/tequipy/challenge/domain/service/ConfirmAllocationServiceTest.kt`
 - `src/test/kotlin/com/tequipy/challenge/domain/service/CancelAllocationServiceTest.kt`
 - `src/test/kotlin/com/tequipy/challenge/domain/service/AllocationAlgorithmTest.kt`
@@ -200,6 +210,8 @@ Set-Location "C:\Users\48502\IdeaProjects\tequipy-code-challenge"
 $env:JAVA_HOME = "C:\Program Files\Java\jdk-17"
 .\gradlew.bat cleanTest test --tests "com.tequipy.challenge.domain.service.*" --no-daemon
 ```
+
+For allocation batching or messaging changes, the most useful targeted tests are `BatchAllocationServiceTest`, `AllocationMessageListenerTest`, `AllocationProcessedMessageListenerTest`, and `AllocationRetryIntegrationTest`.
 
 Integration tests use Spring Boot + Testcontainers + PostgreSQL + RabbitMQ, so Docker availability may be required.
 
