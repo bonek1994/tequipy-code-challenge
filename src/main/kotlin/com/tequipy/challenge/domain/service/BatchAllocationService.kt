@@ -42,133 +42,142 @@ class BatchAllocationService(
         private val logger = KotlinLogging.logger {}
     }
 
-    private val allocationAlgorithm = AllocationAlgorithm()
+    private val algorithm = AllocationAlgorithm()
 
     @Transactional
     fun processBatch(commands: List<ProcessAllocationCommand>) {
         if (commands.isEmpty()) return
         logger.info { "Processing batch of ${commands.size} allocation(s)" }
 
-        // ── Step 1: Idempotency ───────────────────────────────────────────────
-        // tryStart inserts a PROCESSING row (ON CONFLICT DO NOTHING).
-        // Returns true for brand-new allocations; false if a row already exists.
+        val (newCommands, cachedOutcomes) = partitionByIdempotency(commands)
+
+        if (newCommands.isEmpty()) {
+            allocationEventPublisher.publishAllocationProcessedBatch(cachedOutcomes)
+            return
+        }
+
+        val lockedPool = lockCandidatePool(newCommands)
+        val (resultsByAllocation, toReserve) = allocatePerCommand(newCommands, lockedPool)
+
+        if (toReserve.isNotEmpty()) {
+            equipmentRepository.updateAll(toReserve.map { it.copy(state = EquipmentState.RESERVED) })
+        }
+
+        val outcomes = persistOutcomes(newCommands, resultsByAllocation) + cachedOutcomes
+        allocationEventPublisher.publishAllocationProcessedBatch(outcomes)
+
+        val successCount = resultsByAllocation.values.count { it != null }
+        val failedCount = resultsByAllocation.values.count { it == null }
+        logger.info { "Batch complete: $successCount allocated, $failedCount failed" }
+        metrics.recordBatch(newCommands.size, successCount, failedCount)
+    }
+
+    // ── Idempotency ────────────────────────────────────────────────────────
+
+    private fun partitionByIdempotency(
+        commands: List<ProcessAllocationCommand>
+    ): Pair<List<ProcessAllocationCommand>, List<AllocationProcessedResult>> {
         val newCommands = mutableListOf<ProcessAllocationCommand>()
-        val outcomes = mutableListOf<AllocationProcessedResult>()
+        val cached = mutableListOf<AllocationProcessedResult>()
+
         for (cmd in commands) {
             if (allocationProcessingRepository.tryStart(cmd.allocationId)) {
                 newCommands += cmd
             } else {
-                val existing = allocationProcessingRepository.findById(cmd.allocationId) ?: continue
-                when (existing.state) {
-                    AllocationProcessingState.ALLOCATED -> {
-                        logger.info { "Allocation ${cmd.allocationId} already processed, republishing cached result" }
-                        outcomes += AllocationProcessedResult(
-                            allocationId = cmd.allocationId,
-                            success = true,
-                            allocatedEquipmentIds = existing.allocatedEquipmentIds
-                        )
-                    }
-                    AllocationProcessingState.FAILED -> {
-                        logger.info { "Allocation ${cmd.allocationId} already failed, republishing cached result" }
-                        outcomes += AllocationProcessedResult(
-                            allocationId = cmd.allocationId,
-                            success = false,
-                            allocatedEquipmentIds = emptyList()
-                        )
-                    }
-                    AllocationProcessingState.PROCESSING -> {
-                        logger.warn { "Allocation ${cmd.allocationId} is already in PROCESSING state, skipping" }
-                    }
-                }
+                cachedResultFor(cmd.allocationId)?.let { cached += it }
             }
         }
+        return newCommands to cached
+    }
 
-        if (newCommands.isEmpty()) {
-            allocationEventPublisher.publishAllocationProcessedBatch(outcomes)
-            return
+    private fun cachedResultFor(allocationId: UUID): AllocationProcessedResult? {
+        val existing = allocationProcessingRepository.findById(allocationId) ?: return null
+        return when (existing.state) {
+            AllocationProcessingState.ALLOCATED -> {
+                logger.info { "Allocation $allocationId already processed, republishing cached result" }
+                AllocationProcessedResult(allocationId, success = true, existing.allocatedEquipmentIds)
+            }
+            AllocationProcessingState.FAILED -> {
+                logger.info { "Allocation $allocationId already failed, republishing cached result" }
+                AllocationProcessedResult(allocationId, success = false)
+            }
+            AllocationProcessingState.PROCESSING -> {
+                logger.warn { "Allocation $allocationId is already in PROCESSING state, skipping" }
+                null
+            }
         }
+    }
 
-        // ── Step 2: Compute batch-wide equipment constraints ──────────────────
-        val allTypes  = newCommands.flatMap { it.policy.map { req -> req.type } }.toSet()
-        val globalMin = newCommands.flatMap { it.policy.mapNotNull { req -> req.minimumConditionScore } }
-                                   .minOrNull() ?: 0.0
+    // ── Pool locking ───────────────────────────────────────────────────────
 
-        // ── Step 3: Single read for all candidate equipment ───────────────────
+    private fun lockCandidatePool(commands: List<ProcessAllocationCommand>): List<Equipment> {
+        val allTypes = commands.flatMap { it.policy.map { req -> req.type } }.toSet()
+        val globalMin = commands.flatMap { it.policy.mapNotNull { req -> req.minimumConditionScore } }
+            .minOrNull() ?: 0.0
+
         val available = equipmentRepository.findAvailableWithMinConditionScore(allTypes, globalMin)
 
-        // ── Step 4: Lock a bounded oversample (not the entire eligible pool) ──
-        // IMPORTANT: take per-type, not globally.
-        // Without ORDER BY the DB returns rows in index order (state, type, conditionScore),
-        // so a global `take(totalSlots × factor)` would grab items from only the first
-        // type alphabetically, starving every other type and causing mass FAILED allocations.
-        val slotsPerType: Map<EquipmentType, Int> = newCommands
+        val slotsPerType: Map<EquipmentType, Int> = commands
             .flatMap { it.policy }
             .groupBy { it.type }
             .mapValues { (_, reqs) -> reqs.sumOf { it.quantity } }
 
-        val candidateIds: List<UUID> = available
+        val candidateIds = available
             .groupBy { it.type }
             .flatMap { (type, items) ->
-                val slotsForType = slotsPerType[type] ?: 0
-                items.map { it.id }.take(slotsForType * LOCK_OVERSAMPLE_FACTOR)
+                items.map { it.id }.take((slotsPerType[type] ?: 0) * LOCK_OVERSAMPLE_FACTOR)
             }
 
-        val lockedPool: List<Equipment> = if (candidateIds.isEmpty()) {
-            emptyList()
-        } else {
-            equipmentRepository.findByIdsForUpdate(candidateIds, globalMin)
-        }
+        if (candidateIds.isEmpty()) return emptyList()
+        return equipmentRepository.findByIdsForUpdate(candidateIds, globalMin)
+    }
 
-        // ── Step 5: Most-constrained-first ordering within the batch ──────────
-        val sortedCommands = newCommands.sortedByDescending { cmd ->
+    // ── Per-command algorithm ──────────────────────────────────────────────
+
+    private data class AllocateResult(
+        val resultsByAllocation: Map<UUID, List<UUID>?>,
+        val toReserve: List<Equipment>
+    )
+
+    private fun allocatePerCommand(
+        commands: List<ProcessAllocationCommand>,
+        pool: List<Equipment>
+    ): AllocateResult {
+        val sorted = commands.sortedByDescending { cmd ->
             cmd.policy.mapNotNull { it.minimumConditionScore }.maxOrNull() ?: 0.0
         }
 
-        // ── Step 6: Run AllocationAlgorithm per request, no double-assignment ─
-        val usedIds   = mutableSetOf<UUID>()
+        val usedIds = mutableSetOf<UUID>()
         val toReserve = mutableListOf<Equipment>()
-        val results   = mutableMapOf<UUID, List<UUID>?>()
+        val results = mutableMapOf<UUID, List<UUID>?>()
 
-        for (cmd in sortedCommands) {
-            val poolForCmd = lockedPool.filter { it.id !in usedIds }
+        for (cmd in sorted) {
+            val available = pool.filter { it.id !in usedIds }
             var selected: List<Equipment>?
-            val algorithmDurationNanos = measureNanoTime {
-                selected = allocationAlgorithm.allocate(cmd.policy, poolForCmd)
-            }
-            AllocationAlgorithmMetrics.record(algorithmDurationNanos)
+            val nanos = measureNanoTime { selected = algorithm.allocate(cmd.policy, available) }
+            AllocationAlgorithmMetrics.record(nanos)
+
             val chosen = selected
             if (chosen != null) {
-                usedIds   += chosen.map { it.id }
+                usedIds += chosen.map { it.id }
                 toReserve += chosen
                 results[cmd.allocationId] = chosen.map { it.id }
             } else {
                 results[cmd.allocationId] = null
             }
         }
+        return AllocateResult(results, toReserve)
+    }
 
-        // ── Step 7: Persist all reservations in one round-trip ────────────────
-        if (toReserve.isNotEmpty()) {
-            equipmentRepository.updateAll(toReserve.map { it.copy(state = EquipmentState.RESERVED) })
-        }
+    // ── Persistence ────────────────────────────────────────────────────────
 
-        // ── Step 8: Record outcomes and publish events ────────────────────────
-        for (cmd in newCommands) {
-            val reserved = results[cmd.allocationId]
-            val state    = if (reserved != null) AllocationProcessingState.ALLOCATED
-                           else AllocationProcessingState.FAILED
-            allocationProcessingRepository.complete(cmd.allocationId, state, reserved ?: emptyList())
-            outcomes += AllocationProcessedResult(
-                allocationId = cmd.allocationId,
-                success = reserved != null,
-                allocatedEquipmentIds = reserved ?: emptyList()
-            )
-        }
-
-        allocationEventPublisher.publishAllocationProcessedBatch(outcomes)
-
-        val successCount = results.values.count { it != null }
-        val failedCount  = results.values.count { it == null }
-        logger.info { "Batch complete: $successCount allocated, $failedCount failed" }
-        metrics.recordBatch(newCommands.size, successCount, failedCount)
+    private fun persistOutcomes(
+        commands: List<ProcessAllocationCommand>,
+        results: Map<UUID, List<UUID>?>
+    ): List<AllocationProcessedResult> = commands.map { cmd ->
+        val reserved = results[cmd.allocationId]
+        val state = if (reserved != null) AllocationProcessingState.ALLOCATED else AllocationProcessingState.FAILED
+        allocationProcessingRepository.complete(cmd.allocationId, state, reserved ?: emptyList())
+        AllocationProcessedResult(cmd.allocationId, success = reserved != null, reserved ?: emptyList())
     }
 }

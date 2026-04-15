@@ -47,111 +47,24 @@ class AllocationJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
             """.trimIndent(),
             entity.id, entity.state.name, entity.idempotencyKey
         )
-
-        jdbcTemplate.update(
-            "DELETE FROM allocation_policy_requirements WHERE allocation_request_id = ?",
-            entity.id
-        )
-        entity.policy.forEach { req ->
-            jdbcTemplate.update(
-                """
-                INSERT INTO allocation_policy_requirements
-                    (allocation_request_id, type, quantity, minimum_condition_score, preferred_brand)
-                VALUES (?, ?, ?, ?, ?)
-                """.trimIndent(),
-                entity.id, req.type.name, req.quantity, req.minimumConditionScore, req.preferredBrand
-            )
-        }
-
-        jdbcTemplate.update(
-            "DELETE FROM allocation_equipment_ids WHERE allocation_request_id = ?",
-            entity.id
-        )
-        entity.allocatedEquipmentIds.forEach { equipmentId ->
-            jdbcTemplate.update(
-                "INSERT INTO allocation_equipment_ids (allocation_request_id, equipment_id) VALUES (?, ?)",
-                entity.id, equipmentId
-            )
-        }
-
+        savePolicy(entity.id, entity.policy)
+        saveEquipmentIds(entity.id, entity.allocatedEquipmentIds)
         return findById(entity.id) ?: entity
     }
 
-    fun findById(id: UUID): AllocationEntity? {
-        val allocation = try {
-            jdbcTemplate.queryForObject(
-                "SELECT * FROM allocations WHERE id = ?",
-                allocationRowMapper,
-                id
-            )
-        } catch (e: EmptyResultDataAccessException) {
-            null
-        } ?: return null
+    fun findById(id: UUID): AllocationEntity? =
+        queryAllocation("SELECT * FROM allocations WHERE id = ?", id)
 
-        val policy = jdbcTemplate.query(
-            "SELECT * FROM allocation_policy_requirements WHERE allocation_request_id = ?",
-            policyRowMapper,
-            id
-        )
-
-        val equipmentIds = jdbcTemplate.query(
-            "SELECT equipment_id FROM allocation_equipment_ids WHERE allocation_request_id = ?",
-            { rs, _ -> rs.getObject("equipment_id", UUID::class.java) },
-            id
-        )
-
-        return allocation.copy(policy = policy, allocatedEquipmentIds = equipmentIds)
-    }
-
-    fun findByIdempotencyKey(key: UUID): AllocationEntity? {
-        val allocation = try {
-            jdbcTemplate.queryForObject(
-                "SELECT * FROM allocations WHERE idempotency_key = ?",
-                allocationRowMapper,
-                key
-            )
-        } catch (e: EmptyResultDataAccessException) {
-            null
-        } ?: return null
-
-        val policy = jdbcTemplate.query(
-            "SELECT * FROM allocation_policy_requirements WHERE allocation_request_id = ?",
-            policyRowMapper,
-            allocation.id
-        )
-
-        val equipmentIds = jdbcTemplate.query(
-            "SELECT equipment_id FROM allocation_equipment_ids WHERE allocation_request_id = ?",
-            { rs, _ -> rs.getObject("equipment_id", UUID::class.java) },
-            allocation.id
-        )
-
-        return allocation.copy(policy = policy, allocatedEquipmentIds = equipmentIds)
-    }
+    fun findByIdempotencyKey(key: UUID): AllocationEntity? =
+        queryAllocation("SELECT * FROM allocations WHERE idempotency_key = ?", key)
 
     fun completePending(id: UUID, state: AllocationState, allocatedEquipmentIds: List<UUID>): AllocationEntity? {
-        val updatedRows = jdbcTemplate.update(
+        val updated = jdbcTemplate.update(
             "UPDATE allocations SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND state = ?",
-            state.name,
-            id,
-            AllocationState.PENDING.name
+            state.name, id, AllocationState.PENDING.name
         )
-        if (updatedRows == 0) {
-            return null
-        }
-
-        jdbcTemplate.update(
-            "DELETE FROM allocation_equipment_ids WHERE allocation_request_id = ?",
-            id
-        )
-        allocatedEquipmentIds.forEach { equipmentId ->
-            jdbcTemplate.update(
-                "INSERT INTO allocation_equipment_ids (allocation_request_id, equipment_id) VALUES (?, ?)",
-                id,
-                equipmentId
-            )
-        }
-
+        if (updated == 0) return null
+        saveEquipmentIds(id, allocatedEquipmentIds)
         return findById(id)
     }
 
@@ -160,34 +73,23 @@ class AllocationJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
 
         val updatedRows = jdbcTemplate.batchUpdate(
             "UPDATE allocations SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND state = ?",
-            completions.map { completion ->
-                arrayOf(
-                    completion.state.name,
-                    completion.allocationId,
-                    AllocationState.PENDING.name
-                )
-            }
+            completions.map { arrayOf(it.state.name, it.allocationId, AllocationState.PENDING.name) }
         )
 
-        val appliedCompletions = completions.zip(updatedRows.toList())
-            .filter { (_, updated) -> updated > 0 }
+        val applied = completions.zip(updatedRows.toList())
+            .filter { (_, rows) -> rows > 0 }
             .map { (completion, _) -> completion }
 
-        if (appliedCompletions.isEmpty()) {
-            return emptyList()
-        }
+        if (applied.isEmpty()) return emptyList()
 
         jdbcTemplate.batchUpdate(
             "DELETE FROM allocation_equipment_ids WHERE allocation_request_id = ?",
-            appliedCompletions.map { completion -> arrayOf(completion.allocationId) }
+            applied.map { arrayOf(it.allocationId) }
         )
 
-        val equipmentRows = appliedCompletions.flatMap { completion ->
-            completion.allocatedEquipmentIds.map { equipmentId ->
-                arrayOf(completion.allocationId, equipmentId)
-            }
+        val equipmentRows = applied.flatMap { c ->
+            c.allocatedEquipmentIds.map { eqId -> arrayOf(c.allocationId, eqId) }
         }
-
         if (equipmentRows.isNotEmpty()) {
             jdbcTemplate.batchUpdate(
                 "INSERT INTO allocation_equipment_ids (allocation_request_id, equipment_id) VALUES (?, ?)",
@@ -195,8 +97,58 @@ class AllocationJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
             )
         }
 
-        return appliedCompletions.mapNotNull { completion -> findById(completion.allocationId) }
+        return applied.mapNotNull { findById(it.allocationId) }
+    }
+
+    // ── Shared helpers ─────────────────────────────────────────────────────
+
+    private fun queryAllocation(sql: String, param: Any): AllocationEntity? {
+        val allocation = try {
+            jdbcTemplate.queryForObject(sql, allocationRowMapper, param)
+        } catch (_: EmptyResultDataAccessException) {
+            null
+        } ?: return null
+
+        return allocation.copy(
+            policy = loadPolicy(allocation.id),
+            allocatedEquipmentIds = loadEquipmentIds(allocation.id)
+        )
+    }
+
+    private fun loadPolicy(allocationId: UUID): List<EquipmentPolicyRequirementEmbeddable> =
+        jdbcTemplate.query(
+            "SELECT * FROM allocation_policy_requirements WHERE allocation_request_id = ?",
+            policyRowMapper, allocationId
+        )
+
+    private fun loadEquipmentIds(allocationId: UUID): List<UUID> =
+        jdbcTemplate.query(
+            "SELECT equipment_id FROM allocation_equipment_ids WHERE allocation_request_id = ?",
+            { rs, _ -> rs.getObject("equipment_id", UUID::class.java) },
+            allocationId
+        )
+
+    private fun savePolicy(allocationId: UUID, policy: List<EquipmentPolicyRequirementEmbeddable>) {
+        jdbcTemplate.update("DELETE FROM allocation_policy_requirements WHERE allocation_request_id = ?", allocationId)
+        policy.forEach { req ->
+            jdbcTemplate.update(
+                """
+                INSERT INTO allocation_policy_requirements
+                    (allocation_request_id, type, quantity, minimum_condition_score, preferred_brand)
+                VALUES (?, ?, ?, ?, ?)
+                """.trimIndent(),
+                allocationId, req.type.name, req.quantity, req.minimumConditionScore, req.preferredBrand
+            )
+        }
+    }
+
+    private fun saveEquipmentIds(allocationId: UUID, equipmentIds: List<UUID>) {
+        jdbcTemplate.update("DELETE FROM allocation_equipment_ids WHERE allocation_request_id = ?", allocationId)
+        equipmentIds.forEach { eqId ->
+            jdbcTemplate.update(
+                "INSERT INTO allocation_equipment_ids (allocation_request_id, equipment_id) VALUES (?, ?)",
+                allocationId, eqId
+            )
+        }
     }
 }
-
-

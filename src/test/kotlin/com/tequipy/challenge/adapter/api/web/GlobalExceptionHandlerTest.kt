@@ -16,36 +16,36 @@ class GlobalExceptionHandlerTest {
     private val handler = GlobalExceptionHandler()
 
     @Test
-    fun `handleNotFoundException returns 404 with error message`() {
-        val response = handler.handleNotFoundException(NotFoundException("Equipment not found"))
+    fun `handleNotFound returns 404 with error message`() {
+        val response = handler.handleNotFound(NotFoundException("Equipment not found"))
         assertEquals(HttpStatus.NOT_FOUND, response.statusCode)
         assertEquals("Equipment not found", response.body!!["error"])
     }
 
     @Test
-    fun `handleNotFoundException returns default message when null`() {
+    fun `handleNotFound returns default message when null`() {
         val ex = NotFoundException("Not found")
-        val response = handler.handleNotFoundException(ex)
+        val response = handler.handleNotFound(ex)
         assertEquals(HttpStatus.NOT_FOUND, response.statusCode)
         assertEquals("Not found", response.body!!["error"])
     }
 
     @Test
-    fun `handleBadRequestException returns 400 with error message`() {
-        val response = handler.handleBadRequestException(BadRequestException("Brand must not be blank"))
+    fun `handleBadRequest returns 400 with error message`() {
+        val response = handler.handleBadRequest(BadRequestException("Brand must not be blank"))
         assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
         assertEquals("Brand must not be blank", response.body!!["error"])
     }
 
     @Test
-    fun `handleConflictException returns 409 with error message`() {
-        val response = handler.handleConflictException(ConflictException("Allocation is not in ALLOCATED state"))
+    fun `handleConflict returns 409 with error message`() {
+        val response = handler.handleConflict(ConflictException("Allocation is not in ALLOCATED state"))
         assertEquals(HttpStatus.CONFLICT, response.statusCode)
         assertEquals("Allocation is not in ALLOCATED state", response.body!!["error"])
     }
 
     @Test
-    fun `handleValidationException returns 400 with first field error message`() {
+    fun `handleValidation returns 400 with first field error message`() {
         val bindingResult = BeanPropertyBindingResult(Any(), "request")
         bindingResult.addError(FieldError("request", "brand", "must not be blank"))
 
@@ -53,19 +53,19 @@ class GlobalExceptionHandlerTest {
         val methodParameter = MethodParameter(method, -1)
         val ex = MethodArgumentNotValidException(methodParameter, bindingResult)
 
-        val response = handler.handleValidationException(ex)
+        val response = handler.handleValidation(ex)
         assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
         assertEquals("must not be blank", response.body!!["error"])
     }
 
     @Test
-    fun `handleValidationException returns default message when no field errors`() {
+    fun `handleValidation returns default message when no field errors`() {
         val bindingResult = BeanPropertyBindingResult(Any(), "request")
         val method = this::class.java.methods.first()
         val methodParameter = MethodParameter(method, -1)
         val ex = MethodArgumentNotValidException(methodParameter, bindingResult)
 
-        val response = handler.handleValidationException(ex)
+        val response = handler.handleValidation(ex)
         assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
         assertEquals("Validation failed", response.body!!["error"])
     }

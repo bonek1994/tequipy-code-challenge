@@ -18,6 +18,5 @@ class EquipmentMapper {
         retiredReason = equipment.retiredReason
     )
 
-    fun toResponseList(equipment: List<Equipment>): List<EquipmentResponse> =
-        equipment.map { toResponse(it) }
+    fun toResponseList(equipment: List<Equipment>) = equipment.map(::toResponse)
 }

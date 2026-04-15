@@ -13,33 +13,28 @@ import org.springframework.transaction.annotation.Transactional
 class CompleteAllocationService(
     private val allocationRepository: AllocationRepository
 ) : CompleteAllocationUseCase {
+
     private val logger = KotlinLogging.logger {}
 
     @Transactional
     override fun completeAllocations(commands: List<CompleteAllocationCommand>) {
         if (commands.isEmpty()) return
 
-        val completions = commands.map { command ->
-            AllocationCompletion(
-                allocationId = command.allocationId,
-                state = if (command.success) AllocationState.ALLOCATED else AllocationState.FAILED,
-                allocatedEquipmentIds = if (command.success) command.allocatedEquipmentIds else emptyList()
-            )
-        }
-
+        val completions = commands.map { it.toCompletion() }
         val appliedById = allocationRepository.completePendingBatch(completions).associateBy { it.id }
 
-        commands.forEach { command ->
-            val applied = appliedById[command.allocationId]
-            if (applied == null) {
-                logger.info {
-                    "Ignoring allocation completed command for id=${command.allocationId} because allocation is missing or no longer pending"
-                }
-                return@forEach
+        commands.forEach { cmd ->
+            if (cmd.allocationId in appliedById) {
+                logger.info { "Applied allocation completed: id=${cmd.allocationId}, state=${appliedById[cmd.allocationId]?.state}" }
+            } else {
+                logger.info { "Skipped allocation ${cmd.allocationId}: missing or no longer pending" }
             }
-
-            logger.info { "Applied allocation completed command: id=${command.allocationId}, state=${applied.state}" }
         }
     }
-}
 
+    private fun CompleteAllocationCommand.toCompletion() = AllocationCompletion(
+        allocationId = allocationId,
+        state = if (success) AllocationState.ALLOCATED else AllocationState.FAILED,
+        allocatedEquipmentIds = if (success) allocatedEquipmentIds else emptyList()
+    )
+}

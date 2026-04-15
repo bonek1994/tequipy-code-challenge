@@ -28,6 +28,7 @@ import java.io.File
 import java.sql.Date
 import java.sql.PreparedStatement
 import java.time.LocalDate
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CopyOnWriteArrayList
@@ -236,7 +237,8 @@ class HighContentionPerformanceTest {
         val endToEndMs = httpDurationMs + processingDurationMs
 
         // ---- Report ----
-        val algorithmDurations = AllocationAlgorithmMetrics.snapshotNanos().sorted()
+        val algorithmChronological = AllocationAlgorithmMetrics.snapshotNanos()
+        val algorithmDurations = algorithmChronological.sorted()
         val algorithmStats = buildAlgorithmSpeedStats(algorithmDurations)
 
         val report = buildString {
@@ -257,8 +259,8 @@ class HighContentionPerformanceTest {
             appendLine("| HTTP 202 (accepted) | ${httpSuccessCount.get()} |")
             appendLine("| HTTP errors | ${httpFailureCount.get()} |")
             appendLine("| Wall-clock time | ${httpDurationMs} ms |")
-            appendLine("| Throughput | ${"%.1f".format(httpThroughput)} req/s |")
-            appendLine("| Avg response time | ${"%.1f".format(httpAvg)} ms |")
+            appendLine("| Throughput | ${String.format(Locale.ROOT, "%.1f", httpThroughput)} req/s |")
+            appendLine("| Avg response time | ${String.format(Locale.ROOT, "%.1f", httpAvg)} ms |")
             appendLine("| P50 response time | $httpP50 ms |")
             appendLine("| P99 response time | $httpP99 ms |")
             appendLine()
@@ -269,13 +271,13 @@ class HighContentionPerformanceTest {
             appendLine("| FAILED | ${finalCounts.failed} |")
             appendLine("| Still PENDING | ${finalCounts.pending} |")
             appendLine("| Processing wall-clock | ${processingDurationMs} ms |")
-            appendLine("| Processing throughput | ${"%.1f".format(processingThroughput)} alloc/s |")
+            appendLine("| Processing throughput | ${String.format(Locale.ROOT, "%.1f", processingThroughput)} alloc/s |")
             appendLine()
             appendLine("### Queue Wait Time (HTTP POST → processing start)")
             appendLine("| Metric | Value |")
             appendLine("|--------|-------|")
             appendLine("| Samples | ${queueTimes.size} |")
-            appendLine("| Avg | ${"%.1f".format(queueAvg)} ms |")
+            appendLine("| Avg | ${String.format(Locale.ROOT, "%.1f", queueAvg)} ms |")
             appendLine("| P50 | $queueP50 ms |")
             appendLine("| P99 | $queueP99 ms |")
             appendLine("| Max | $queueMax ms |")
@@ -285,7 +287,10 @@ class HighContentionPerformanceTest {
             appendLine("|--------|-------|")
             appendLine("| Total time (HTTP + processing) | ${endToEndMs} ms |")
             appendLine()
-            append(renderAllocationAlgorithmSpeedSection(algorithmStats, "|--------|-------|"))
+            append(renderAllocationAlgorithmSpeedSection(
+                algorithmStats, "|--------|-------|",
+                chronologicalNanos = algorithmChronological
+            ))
         }
 
         log.info("Performance test completed. Writing report to build/performance-report.md")
