@@ -139,7 +139,7 @@ class MixedEquipmentPerformanceTest {
     }
 
     @Test
-    fun `5000 concurrent mixed-equipment allocation requests with random policy sizes`() {
+    fun `5000 burst mixed-equipment allocation requests with random policy sizes`() {
 
         // ---- Step 1: Pre-generate all request policies (deterministic seed = reproducible run) ----
         val requestRandom = Random(123)

@@ -120,7 +120,7 @@ class HighContentionPerformanceTest {
     }
 
     @Test
-    fun `1000 concurrent allocation requests for Apple and Dell laptops with minimum condition 0_7`() {
+    fun `5000 burst allocation requests for Apple and Dell laptops with minimum condition 0_7`() {
         val rows = buildEquipmentRows()
         val appleEligible = rows.count { it.brand == "Apple" && it.conditionScore >= MIN_CONDITION }
         val dellEligible = rows.count { it.brand == "Dell" && it.conditionScore >= MIN_CONDITION }
