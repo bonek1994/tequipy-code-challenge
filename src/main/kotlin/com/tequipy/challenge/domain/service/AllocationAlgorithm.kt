@@ -18,6 +18,13 @@ class AllocationAlgorithm {
          * room to find a globally optimal combination.
          */
         const val CANDIDATE_MULTIPLIER = 3
+
+        /**
+         * Score bonus applied to equipment whose brand matches the preferred brand
+         * in a policy requirement. Used both by the algorithm and by the batch
+         * service when pre-ranking candidates before locking.
+         */
+        const val BRAND_BONUS = 10.0
     }
 
     fun allocate(
@@ -72,7 +79,7 @@ class AllocationAlgorithm {
         type == req.type && (req.minimumConditionScore == null || conditionScore >= req.minimumConditionScore)
 
     private fun Equipment.score(req: EquipmentPolicyRequirement): Double {
-        val brandBonus = if (req.preferredBrand?.equals(brand, ignoreCase = true) == true) 10.0 else 0.0
+        val brandBonus = if (req.preferredBrand?.equals(brand, ignoreCase = true) == true) BRAND_BONUS else 0.0
         return brandBonus + conditionScore
     }
 

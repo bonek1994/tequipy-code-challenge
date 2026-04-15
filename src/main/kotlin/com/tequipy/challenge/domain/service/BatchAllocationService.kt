@@ -122,10 +122,27 @@ class BatchAllocationService(
             .groupBy { it.type }
             .mapValues { (_, reqs) -> reqs.sumOf { it.quantity } }
 
+        // Collect all preferred brands (lower-cased) so candidates are pre-ranked the
+        // same way AllocationAlgorithm scores them: brand bonus + conditionScore.
+        // Without this, preferred-brand items with lower condition scores would be
+        // excluded from the locked pool before the algorithm ever runs.
+        val preferredBrands: Set<String> = commands
+            .flatMap { it.policy.mapNotNull { req -> req.preferredBrand?.lowercase() } }
+            .toSet()
+
         val candidateIds = available
             .groupBy { it.type }
             .flatMap { (type, items) ->
-                items.map { it.id }.take((slotsPerType[type] ?: 0) * LOCK_OVERSAMPLE_FACTOR)
+                val limit = (slotsPerType[type] ?: 0) * LOCK_OVERSAMPLE_FACTOR
+                items
+                    .sortedByDescending { item ->
+                        val bonus = if (preferredBrands.isNotEmpty() &&
+                            item.brand.lowercase() in preferredBrands
+                        ) AllocationAlgorithm.BRAND_BONUS else 0.0
+                        bonus + item.conditionScore
+                    }
+                    .take(limit)
+                    .map { it.id }
             }
 
         if (candidateIds.isEmpty()) return emptyList()
