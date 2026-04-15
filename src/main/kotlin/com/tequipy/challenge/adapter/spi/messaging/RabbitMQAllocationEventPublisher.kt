@@ -1,9 +1,10 @@
 package com.tequipy.challenge.adapter.spi.messaging
 
-import com.tequipy.challenge.adapter.api.messaging.AllocationProcessedMessage
-import com.tequipy.challenge.adapter.api.messaging.AllocationRequestedMessage
+import com.tequipy.challenge.adapter.api.messaging.events.EquipmentAllocated
+import com.tequipy.challenge.adapter.api.messaging.events.AllocationCreated
 import com.tequipy.challenge.config.RabbitMQConfig
 import com.tequipy.challenge.domain.model.AllocationEntity
+import com.tequipy.challenge.domain.model.AllocationProcessedResult
 import com.tequipy.challenge.domain.port.spi.AllocationEventPublisher
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.amqp.rabbit.core.RabbitTemplate
@@ -23,10 +24,10 @@ class RabbitMQAllocationEventPublisher(
     override fun publishAllocationCreated(allocation: AllocationEntity) {
         afterCommit {
             logger.debug { "Publishing allocation created event: id=${allocation.id}" }
-            val message = AllocationRequestedMessage(
+            val message = AllocationCreated(
                 id = allocation.id,
                 policy = allocation.policy.map { req ->
-                    AllocationRequestedMessage.PolicyRequirementMessage(
+                    AllocationCreated.PolicyRequirementMessage(
                         type = req.type,
                         quantity = req.quantity,
                         minimumConditionScore = req.minimumConditionScore,
@@ -41,18 +42,38 @@ class RabbitMQAllocationEventPublisher(
     }
 
     override fun publishAllocationProcessed(allocationId: UUID, success: Boolean, allocatedEquipmentIds: List<UUID>) {
+        publishAllocationProcessedBatch(
+            listOf(
+                AllocationProcessedResult(
+                    allocationId = allocationId,
+                    success = success,
+                    allocatedEquipmentIds = allocatedEquipmentIds
+                )
+            )
+        )
+    }
+
+    override fun publishAllocationProcessedBatch(results: List<AllocationProcessedResult>) {
+        if (results.isEmpty()) {
+            return
+        }
+
         afterCommit {
-            logger.debug { "Publishing allocation processed event: id=$allocationId, success=$success" }
+            logger.debug { "Publishing allocation processed batch event with ${results.size} result(s)" }
             rabbitTemplate.convertAndSend(
                 RabbitMQConfig.ALLOCATION_RESULT_QUEUE,
-                AllocationProcessedMessage(
-                    id = allocationId,
-                    success = success,
-                    allocatedEquipmentIds = allocatedEquipmentIds,
+                EquipmentAllocated(
+                    results = results.map { result ->
+                        EquipmentAllocated.AllocationProcessedResultMessage(
+                            id = result.allocationId,
+                            success = result.success,
+                            allocatedEquipmentIds = result.allocatedEquipmentIds
+                        )
+                    },
                     timestamp = Instant.now()
                 )
             )
-            logger.debug { "Allocation processed event published: id=$allocationId, success=$success" }
+            logger.debug { "Allocation processed batch event published with ${results.size} result(s)" }
         }
     }
 

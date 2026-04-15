@@ -1,5 +1,6 @@
 package com.tequipy.challenge.domain.port.spi
 
+import com.tequipy.challenge.domain.model.AllocationCompletion
 import com.tequipy.challenge.domain.model.AllocationEntity
 import com.tequipy.challenge.domain.model.AllocationState
 import java.util.UUID
@@ -9,5 +10,6 @@ interface AllocationRepository {
     fun findById(id: UUID): AllocationEntity?
     fun findByIdempotencyKey(key: UUID): AllocationEntity?
     fun completePending(id: UUID, state: AllocationState, allocatedEquipmentIds: List<UUID>): AllocationEntity?
+    fun completePendingBatch(completions: List<AllocationCompletion>): List<AllocationEntity>
 }
 

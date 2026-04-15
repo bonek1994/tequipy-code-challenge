@@ -2,6 +2,7 @@ package com.tequipy.challenge.domain.service
 
 import com.tequipy.challenge.domain.command.ProcessAllocationCommand
 import com.tequipy.challenge.domain.model.AllocationProcessingState
+import com.tequipy.challenge.domain.model.AllocationProcessedResult
 import com.tequipy.challenge.domain.model.Equipment
 import com.tequipy.challenge.domain.model.EquipmentState
 import com.tequipy.challenge.domain.model.EquipmentType
@@ -12,6 +13,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
+import kotlin.system.measureNanoTime
 
 /**
  * Processes a batch of [ProcessAllocationCommand]s in a single database transaction,
@@ -35,7 +37,7 @@ class BatchAllocationService(
     private val metrics: BatchAllocationMetrics
 ) {
     companion object {
-        const val MAX_BATCH_SIZE = 500
+        const val MAX_BATCH_SIZE = 100
         private const val LOCK_OVERSAMPLE_FACTOR = 2
         private val logger = KotlinLogging.logger {}
     }
@@ -51,6 +53,7 @@ class BatchAllocationService(
         // tryStart inserts a PROCESSING row (ON CONFLICT DO NOTHING).
         // Returns true for brand-new allocations; false if a row already exists.
         val newCommands = mutableListOf<ProcessAllocationCommand>()
+        val outcomes = mutableListOf<AllocationProcessedResult>()
         for (cmd in commands) {
             if (allocationProcessingRepository.tryStart(cmd.allocationId)) {
                 newCommands += cmd
@@ -59,13 +62,19 @@ class BatchAllocationService(
                 when (existing.state) {
                     AllocationProcessingState.ALLOCATED -> {
                         logger.info { "Allocation ${cmd.allocationId} already processed, republishing cached result" }
-                        allocationEventPublisher.publishAllocationProcessed(
-                            cmd.allocationId, true, existing.allocatedEquipmentIds
+                        outcomes += AllocationProcessedResult(
+                            allocationId = cmd.allocationId,
+                            success = true,
+                            allocatedEquipmentIds = existing.allocatedEquipmentIds
                         )
                     }
                     AllocationProcessingState.FAILED -> {
                         logger.info { "Allocation ${cmd.allocationId} already failed, republishing cached result" }
-                        allocationEventPublisher.publishAllocationProcessed(cmd.allocationId, false)
+                        outcomes += AllocationProcessedResult(
+                            allocationId = cmd.allocationId,
+                            success = false,
+                            allocatedEquipmentIds = emptyList()
+                        )
                     }
                     AllocationProcessingState.PROCESSING -> {
                         logger.warn { "Allocation ${cmd.allocationId} is already in PROCESSING state, skipping" }
@@ -74,7 +83,10 @@ class BatchAllocationService(
             }
         }
 
-        if (newCommands.isEmpty()) return
+        if (newCommands.isEmpty()) {
+            allocationEventPublisher.publishAllocationProcessedBatch(outcomes)
+            return
+        }
 
         // ── Step 2: Compute batch-wide equipment constraints ──────────────────
         val allTypes  = newCommands.flatMap { it.policy.map { req -> req.type } }.toSet()
@@ -119,11 +131,16 @@ class BatchAllocationService(
 
         for (cmd in sortedCommands) {
             val poolForCmd = lockedPool.filter { it.id !in usedIds }
-            val selected   = allocationAlgorithm.allocate(cmd.policy, poolForCmd)
-            if (selected != null) {
-                usedIds   += selected.map { it.id }
-                toReserve += selected
-                results[cmd.allocationId] = selected.map { it.id }
+            var selected: List<Equipment>?
+            val algorithmDurationNanos = measureNanoTime {
+                selected = allocationAlgorithm.allocate(cmd.policy, poolForCmd)
+            }
+            AllocationAlgorithmMetrics.record(algorithmDurationNanos)
+            val chosen = selected
+            if (chosen != null) {
+                usedIds   += chosen.map { it.id }
+                toReserve += chosen
+                results[cmd.allocationId] = chosen.map { it.id }
             } else {
                 results[cmd.allocationId] = null
             }
@@ -140,12 +157,14 @@ class BatchAllocationService(
             val state    = if (reserved != null) AllocationProcessingState.ALLOCATED
                            else AllocationProcessingState.FAILED
             allocationProcessingRepository.complete(cmd.allocationId, state, reserved ?: emptyList())
-            allocationEventPublisher.publishAllocationProcessed(
-                cmd.allocationId,
+            outcomes += AllocationProcessedResult(
+                allocationId = cmd.allocationId,
                 success = reserved != null,
                 allocatedEquipmentIds = reserved ?: emptyList()
             )
         }
+
+        allocationEventPublisher.publishAllocationProcessedBatch(outcomes)
 
         val successCount = results.values.count { it != null }
         val failedCount  = results.values.count { it == null }

@@ -9,6 +9,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
+import kotlin.system.measureNanoTime
 
 @Service
 class InventoryAllocationService(
@@ -24,12 +25,17 @@ class InventoryAllocationService(
         val requiredTypes = policy.map { it.type }.toSet()
 
         val available = equipmentRepository.findAvailableWithMinConditionScore(requiredTypes, globalMinScore)
-        val selected = allocationAlgorithm.allocate(
-            policy = policy,
-            availableEquipment = available
-        ) ?: return null
+        var selected: List<com.tequipy.challenge.domain.model.Equipment>?
+        val algorithmDurationNanos = measureNanoTime {
+            selected = allocationAlgorithm.allocate(
+                policy = policy,
+                availableEquipment = available
+            )
+        }
+        AllocationAlgorithmMetrics.record(algorithmDurationNanos)
+        val chosen = selected ?: return null
 
-        val selectedIds = selected.map { it.id }
+        val selectedIds = chosen.map { it.id }
         val lockedSelected = equipmentRepository.findByIdsForUpdate(selectedIds, globalMinScore)
         if (lockedSelected.size < selectedIds.size) {
             logger.warn {
@@ -38,7 +44,7 @@ class InventoryAllocationService(
             throw AllocationLockContentionException(allocationId)
         }
 
-        equipmentRepository.updateAll(selected.map { it.copy(state = EquipmentState.RESERVED) })
+        equipmentRepository.updateAll(chosen.map { it.copy(state = EquipmentState.RESERVED) })
         return selectedIds
     }
 

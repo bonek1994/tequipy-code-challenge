@@ -13,8 +13,6 @@ import com.tequipy.challenge.domain.port.spi.EquipmentRepository
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import io.mockk.verifyOrder
-import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import java.time.LocalDate
 import java.util.UUID
@@ -35,7 +33,7 @@ class BatchAllocationServiceTest {
     fun `processBatch with empty list does nothing`() {
         service.processBatch(emptyList())
         verify(exactly = 0) { equipmentRepository.findAvailableWithMinConditionScore(any(), any()) }
-        verify(exactly = 0) { allocationEventPublisher.publishAllocationProcessed(any(), any(), any()) }
+        verify(exactly = 0) { allocationEventPublisher.publishAllocationProcessedBatch(any()) }
     }
 
     // -------------------------------------------------------------------------
@@ -43,7 +41,7 @@ class BatchAllocationServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `processBatch reserves equipment and publishes success for each command`() {
+    fun `processBatch reserves equipment and publishes one success batch for all commands`() {
         val cmd1 = command(policy = listOf(req(EquipmentType.MONITOR, 1)))
         val cmd2 = command(policy = listOf(req(EquipmentType.MONITOR, 1)))
         val eq1  = equipment(EquipmentType.MONITOR, conditionScore = 0.9)
@@ -65,9 +63,13 @@ class BatchAllocationServiceTest {
                 saved.size == 2 && saved.all { it.state == EquipmentState.RESERVED }
             })
         }
-        // Both allocations succeed
-        verify { allocationEventPublisher.publishAllocationProcessed(cmd1.allocationId, true, any()) }
-        verify { allocationEventPublisher.publishAllocationProcessed(cmd2.allocationId, true, any()) }
+        verify(exactly = 1) {
+            allocationEventPublisher.publishAllocationProcessedBatch(match { results ->
+                results.size == 2 &&
+                    results.any { it.allocationId == cmd1.allocationId && it.success && it.allocatedEquipmentIds.isNotEmpty() } &&
+                    results.any { it.allocationId == cmd2.allocationId && it.success && it.allocatedEquipmentIds.isNotEmpty() }
+            })
+        }
     }
 
     @Test
@@ -84,7 +86,17 @@ class BatchAllocationServiceTest {
 
         verify(exactly = 0) { equipmentRepository.updateAll(any()) }
         verify { allocationProcessingRepository.complete(cmd.allocationId, AllocationProcessingState.FAILED, emptyList()) }
-        verify { allocationEventPublisher.publishAllocationProcessed(cmd.allocationId, false, emptyList()) }
+        verify(exactly = 1) {
+            allocationEventPublisher.publishAllocationProcessedBatch(match { results ->
+                results == listOf(
+                    com.tequipy.challenge.domain.model.AllocationProcessedResult(
+                        allocationId = cmd.allocationId,
+                        success = false,
+                        allocatedEquipmentIds = emptyList()
+                    )
+                )
+            })
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -112,9 +124,11 @@ class BatchAllocationServiceTest {
         verify {
             equipmentRepository.updateAll(match { saved -> saved.size == 1 })
         }
-        // One success, one failure (order depends on which command is processed first)
-        verify(exactly = 1) { allocationEventPublisher.publishAllocationProcessed(any(), true, any()) }
-        verify(exactly = 1) { allocationEventPublisher.publishAllocationProcessed(any(), false, emptyList()) }
+        verify(exactly = 1) {
+            allocationEventPublisher.publishAllocationProcessedBatch(match { results ->
+                results.size == 2 && results.count { it.success } == 1 && results.count { !it.success } == 1
+            })
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -140,8 +154,13 @@ class BatchAllocationServiceTest {
 
         service.processBatch(listOf(cmdLoose, cmdStrict)) // deliberately submit loose first
 
-        verify { allocationEventPublisher.publishAllocationProcessed(cmdStrict.allocationId, true, any()) }
-        verify { allocationEventPublisher.publishAllocationProcessed(cmdLoose.allocationId, false, emptyList()) }
+        verify(exactly = 1) {
+            allocationEventPublisher.publishAllocationProcessedBatch(match { results ->
+                results.size == 2 &&
+                    results.any { it.allocationId == cmdStrict.allocationId && it.success } &&
+                    results.any { it.allocationId == cmdLoose.allocationId && !it.success && it.allocatedEquipmentIds.isEmpty() }
+            })
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -160,7 +179,14 @@ class BatchAllocationServiceTest {
         service.processBatch(listOf(cmd))
 
         verify(exactly = 0) { equipmentRepository.findAvailableWithMinConditionScore(any(), any()) }
-        verify { allocationEventPublisher.publishAllocationProcessed(cmd.allocationId, true, listOf(cachedId)) }
+        verify(exactly = 1) {
+            allocationEventPublisher.publishAllocationProcessedBatch(match { results ->
+                results.size == 1 &&
+                    results[0].allocationId == cmd.allocationId &&
+                    results[0].success &&
+                    results[0].allocatedEquipmentIds == listOf(cachedId)
+            })
+        }
     }
 
     @Test
@@ -174,7 +200,14 @@ class BatchAllocationServiceTest {
         service.processBatch(listOf(cmd))
 
         verify(exactly = 0) { equipmentRepository.findAvailableWithMinConditionScore(any(), any()) }
-        verify { allocationEventPublisher.publishAllocationProcessed(cmd.allocationId, false, emptyList()) }
+        verify(exactly = 1) {
+            allocationEventPublisher.publishAllocationProcessedBatch(match { results ->
+                results.size == 1 &&
+                    results[0].allocationId == cmd.allocationId &&
+                    !results[0].success &&
+                    results[0].allocatedEquipmentIds.isEmpty()
+            })
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -199,8 +232,13 @@ class BatchAllocationServiceTest {
 
         service.processBatch(listOf(cmdSuccess, cmdFail))
 
-        verify { allocationEventPublisher.publishAllocationProcessed(cmdSuccess.allocationId, true, any()) }
-        verify { allocationEventPublisher.publishAllocationProcessed(cmdFail.allocationId, false, emptyList()) }
+        verify(exactly = 1) {
+            allocationEventPublisher.publishAllocationProcessedBatch(match { results ->
+                results.size == 2 &&
+                    results.any { it.allocationId == cmdSuccess.allocationId && it.success } &&
+                    results.any { it.allocationId == cmdFail.allocationId && !it.success && it.allocatedEquipmentIds.isEmpty() }
+            })
+        }
     }
 
     @Test

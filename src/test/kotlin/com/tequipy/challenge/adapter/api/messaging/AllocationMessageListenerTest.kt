@@ -1,5 +1,6 @@
 package com.tequipy.challenge.adapter.api.messaging
 
+import com.tequipy.challenge.adapter.api.messaging.events.AllocationCreated
 import com.tequipy.challenge.domain.command.ProcessAllocationCommand
 import com.tequipy.challenge.domain.model.EquipmentType
 import com.tequipy.challenge.domain.service.BatchAllocationCollector
@@ -17,10 +18,10 @@ class AllocationMessageListenerTest {
     fun `onAllocationCreated should submit command to batch collector`() {
         // given
         val allocationId = UUID.randomUUID()
-        val message = AllocationRequestedMessage(
+        val message = AllocationCreated(
             id = allocationId,
             policy = listOf(
-                AllocationRequestedMessage.PolicyRequirementMessage(type = EquipmentType.MONITOR, quantity = 1)
+                AllocationCreated.PolicyRequirementMessage(type = EquipmentType.MONITOR, quantity = 1)
             )
         )
 

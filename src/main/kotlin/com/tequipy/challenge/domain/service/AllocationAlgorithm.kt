@@ -16,7 +16,7 @@ class AllocationAlgorithm {
          * This keeps the search space bounded while giving the algorithm enough
          * room to find a globally optimal combination.
          */
-        const val CANDIDATE_MULTIPLIER = 4
+        const val CANDIDATE_MULTIPLIER = 3
     }
 
     fun allocate(

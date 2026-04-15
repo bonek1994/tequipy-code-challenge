@@ -95,7 +95,7 @@ class EquipmentJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
         if (types.isEmpty()) return emptyList()
         val placeholders = types.joinToString(",") { "?" }
         return jdbcTemplate.query(
-            "SELECT * FROM equipments WHERE state = ? AND type IN ($placeholders) AND condition_score >= ?",
+            "SELECT * FROM equipments WHERE state = ? AND type IN ($placeholders) AND condition_score >= ? ORDER BY type ASC, condition_score DESC",
             rowMapper,
             EquipmentState.AVAILABLE.name, *types.map { it.name }.toTypedArray(), minScore
         )

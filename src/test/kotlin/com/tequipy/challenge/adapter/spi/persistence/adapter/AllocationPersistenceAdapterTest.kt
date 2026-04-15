@@ -3,6 +3,7 @@ package com.tequipy.challenge.adapter.spi.persistence.adapter
 import com.tequipy.challenge.adapter.spi.persistence.entity.AllocationEntity as AllocationRowEntity
 import com.tequipy.challenge.adapter.spi.persistence.mapper.AllocationEntityMapper
 import com.tequipy.challenge.adapter.spi.persistence.repository.AllocationJdbcRepository
+import com.tequipy.challenge.domain.model.AllocationCompletion
 import com.tequipy.challenge.domain.model.AllocationEntity as AllocationDomainEntity
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
@@ -107,6 +108,28 @@ class AllocationPersistenceAdapterTest {
         val result = adapter.completePending(UUID.randomUUID(), AllocationState.ALLOCATED, emptyList())
 
         assertNull(result)
+    }
+
+    @Test
+    fun `completePendingBatch returns mapped domain entities for applied results`() {
+        val equipmentIds = listOf(UUID.randomUUID())
+        val completions = listOf(
+            AllocationCompletion(
+                allocationId = domainEntity.id,
+                state = AllocationState.ALLOCATED,
+                allocatedEquipmentIds = equipmentIds
+            )
+        )
+        val updatedRow = rowEntity.copy(state = AllocationState.ALLOCATED, allocatedEquipmentIds = emptyList())
+        val updatedDomain = domainEntity.copy(state = AllocationState.ALLOCATED, allocatedEquipmentIds = equipmentIds)
+
+        every { jdbcRepository.completePendingBatch(completions) } returns listOf(updatedRow)
+        every { mapper.toDomain(updatedRow) } returns updatedDomain
+
+        val result = adapter.completePendingBatch(completions)
+
+        assertEquals(listOf(updatedDomain), result)
+        verify { jdbcRepository.completePendingBatch(completions) }
     }
 }
 

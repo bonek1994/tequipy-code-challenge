@@ -2,6 +2,7 @@ package com.tequipy.challenge.adapter.spi.persistence.repository
 
 import com.tequipy.challenge.adapter.spi.persistence.entity.AllocationEntity
 import com.tequipy.challenge.adapter.spi.persistence.entity.EquipmentPolicyRequirementEmbeddable
+import com.tequipy.challenge.domain.model.AllocationCompletion
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.EquipmentType
 import org.springframework.dao.EmptyResultDataAccessException
@@ -152,6 +153,49 @@ class AllocationJdbcRepository(private val jdbcTemplate: JdbcTemplate) {
         }
 
         return findById(id)
+    }
+
+    fun completePendingBatch(completions: List<AllocationCompletion>): List<AllocationEntity> {
+        if (completions.isEmpty()) return emptyList()
+
+        val updatedRows = jdbcTemplate.batchUpdate(
+            "UPDATE allocations SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND state = ?",
+            completions.map { completion ->
+                arrayOf(
+                    completion.state.name,
+                    completion.allocationId,
+                    AllocationState.PENDING.name
+                )
+            }
+        )
+
+        val appliedCompletions = completions.zip(updatedRows.toList())
+            .filter { (_, updated) -> updated > 0 }
+            .map { (completion, _) -> completion }
+
+        if (appliedCompletions.isEmpty()) {
+            return emptyList()
+        }
+
+        jdbcTemplate.batchUpdate(
+            "DELETE FROM allocation_equipment_ids WHERE allocation_request_id = ?",
+            appliedCompletions.map { completion -> arrayOf(completion.allocationId) }
+        )
+
+        val equipmentRows = appliedCompletions.flatMap { completion ->
+            completion.allocatedEquipmentIds.map { equipmentId ->
+                arrayOf(completion.allocationId, equipmentId)
+            }
+        }
+
+        if (equipmentRows.isNotEmpty()) {
+            jdbcTemplate.batchUpdate(
+                "INSERT INTO allocation_equipment_ids (allocation_request_id, equipment_id) VALUES (?, ?)",
+                equipmentRows
+            )
+        }
+
+        return appliedCompletions.mapNotNull { completion -> findById(completion.allocationId) }
     }
 }
 

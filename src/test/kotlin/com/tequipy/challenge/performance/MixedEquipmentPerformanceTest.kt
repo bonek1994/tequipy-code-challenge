@@ -4,6 +4,8 @@ import com.tequipy.challenge.adapter.api.web.dto.AllocationResponse
 import com.tequipy.challenge.adapter.api.web.dto.CreateAllocationRequest
 import com.tequipy.challenge.adapter.api.web.dto.EquipmentPolicyRequirementRequest
 import com.tequipy.challenge.domain.model.EquipmentType
+import com.tequipy.challenge.domain.service.AllocationAlgorithmMetrics
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Tag
@@ -62,6 +64,11 @@ class MixedEquipmentPerformanceTest {
 
     @Autowired
     private lateinit var jdbcTemplate: JdbcTemplate
+
+    @BeforeEach
+    fun resetMetrics() {
+        AllocationAlgorithmMetrics.reset()
+    }
 
     companion object {
         private val log = LoggerFactory.getLogger(MixedEquipmentPerformanceTest::class.java)
@@ -229,8 +236,8 @@ class MixedEquipmentPerformanceTest {
         val endToEndMs           = httpDurationMs + processingDurationMs
 
         // ---- Report ----
-        val requirementSizeDistribution = policies.groupBy { it.size }.mapValues { it.value.size }.toSortedMap()
-        val typeRequirementCounts       = ALL_TYPES.associateWith { type -> policies.sumOf { p -> p.count { it.type == type } } }
+        val algorithmDurations = AllocationAlgorithmMetrics.snapshotNanos().sorted()
+        val algorithmStats = buildAlgorithmSpeedStats(algorithmDurations)
 
         val report = buildString {
             appendLine("## 🚀 Mixed Equipment Performance Test Report")
@@ -247,12 +254,14 @@ class MixedEquipmentPerformanceTest {
             appendLine("### Request Policy Distribution")
             appendLine("| Requirements per request | Requests |")
             appendLine("|-------------------------:|---------:|")
-            requirementSizeDistribution.forEach { (size, count) -> appendLine("| $size | $count |") }
+            policies.groupBy { it.size }.mapValues { it.value.size }.toSortedMap()
+                .forEach { (size, count) -> appendLine("| $size | $count |") }
             appendLine()
             appendLine("### Equipment Type Demand Across All Requests")
             appendLine("| Type | Requirements |")
             appendLine("|------|-------------:|")
-            typeRequirementCounts.forEach { (type, count) -> appendLine("| $type | $count |") }
+            ALL_TYPES.associateWith { type -> policies.sumOf { p -> p.count { it.type == type } } }
+                .forEach { (type, count) -> appendLine("| $type | $count |") }
             appendLine()
             appendLine("### Phase 1 — HTTP Submission")
             appendLine("| Metric | Value |")
@@ -287,6 +296,8 @@ class MixedEquipmentPerformanceTest {
             appendLine("| Metric | Value |")
             appendLine("|--------|------:|")
             appendLine("| Total time (HTTP + processing) | ${endToEndMs} ms |")
+            appendLine()
+            append(renderAllocationAlgorithmSpeedSection(algorithmStats, "|--------|------:|"))
         }
 
         log.info("Performance test complete.\n{}", report)
@@ -306,11 +317,17 @@ class MixedEquipmentPerformanceTest {
             "All allocations should be processed within ${PROCESSING_TIMEOUT_MS / 1000}s. " +
                 "${finalCounts.pending} still PENDING out of ${finalCounts.total}."
         )
+        assertEquals(
+            finalCounts.settled,
+            algorithmStats.samples,
+            "Algorithm metrics should contain one sample per processed allocation."
+        )
     }
 
     // ---- Private helpers ----
 
     private fun allocationUrl() = "http://localhost:$port/allocations"
+
 
     /**
      * Generates a single random allocation policy with 1–4 requirements.

@@ -1,9 +1,10 @@
 package com.tequipy.challenge.adapter.spi.messaging
 
-import com.tequipy.challenge.adapter.api.messaging.AllocationProcessedMessage
-import com.tequipy.challenge.adapter.api.messaging.AllocationRequestedMessage
+import com.tequipy.challenge.adapter.api.messaging.events.EquipmentAllocated
+import com.tequipy.challenge.adapter.api.messaging.events.AllocationCreated
 import com.tequipy.challenge.config.RabbitMQConfig
 import com.tequipy.challenge.domain.model.AllocationEntity
+import com.tequipy.challenge.domain.model.AllocationProcessedResult
 import com.tequipy.challenge.domain.model.AllocationState
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import com.tequipy.challenge.domain.model.EquipmentType
@@ -41,7 +42,7 @@ class RabbitMQAllocationEventPublisherTest {
         // No active transaction, so callback executes immediately
         publisher.publishAllocationCreated(allocation)
 
-        val messageSlot = slot<AllocationRequestedMessage>()
+        val messageSlot = slot<AllocationCreated>()
         verify { rabbitTemplate.convertAndSend(RabbitMQConfig.ALLOCATION_QUEUE, capture(messageSlot)) }
 
         val captured = messageSlot.captured
@@ -67,40 +68,76 @@ class RabbitMQAllocationEventPublisherTest {
 
         publisher.publishAllocationCreated(allocation)
 
-        val messageSlot = slot<AllocationRequestedMessage>()
+        val messageSlot = slot<AllocationCreated>()
         verify { rabbitTemplate.convertAndSend(RabbitMQConfig.ALLOCATION_QUEUE, capture(messageSlot)) }
         assertEquals(2, messageSlot.captured.policy.size)
     }
 
     @Test
-    fun `publishAllocationProcessed sends success message to result queue`() {
+    fun `publishAllocationProcessed sends one-item batch message to result queue`() {
         val allocationId = UUID.randomUUID()
         val equipmentIds = listOf(UUID.randomUUID(), UUID.randomUUID())
 
         publisher.publishAllocationProcessed(allocationId, true, equipmentIds)
 
-        val messageSlot = slot<AllocationProcessedMessage>()
+        val messageSlot = slot<EquipmentAllocated>()
         verify { rabbitTemplate.convertAndSend(RabbitMQConfig.ALLOCATION_RESULT_QUEUE, capture(messageSlot)) }
 
         val captured = messageSlot.captured
-        assertEquals(allocationId, captured.id)
-        assertTrue(captured.success)
-        assertEquals(equipmentIds, captured.allocatedEquipmentIds)
+        assertEquals(1, captured.results.size)
+        assertEquals(allocationId, captured.results[0].id)
+        assertTrue(captured.results[0].success)
+        assertEquals(equipmentIds, captured.results[0].allocatedEquipmentIds)
     }
 
     @Test
-    fun `publishAllocationProcessed sends failure message with empty equipment ids`() {
+    fun `publishAllocationProcessedBatch sends all results in one message`() {
+        val firstAllocationId = UUID.randomUUID()
+        val secondAllocationId = UUID.randomUUID()
+        val firstEquipmentIds = listOf(UUID.randomUUID())
+
+        publisher.publishAllocationProcessedBatch(
+            listOf(
+                AllocationProcessedResult(
+                    allocationId = firstAllocationId,
+                    success = true,
+                    allocatedEquipmentIds = firstEquipmentIds
+                ),
+                AllocationProcessedResult(
+                    allocationId = secondAllocationId,
+                    success = false,
+                    allocatedEquipmentIds = emptyList()
+                )
+            )
+        )
+
+        val messageSlot = slot<EquipmentAllocated>()
+        verify { rabbitTemplate.convertAndSend(RabbitMQConfig.ALLOCATION_RESULT_QUEUE, capture(messageSlot)) }
+
+        val captured = messageSlot.captured
+        assertEquals(2, captured.results.size)
+        assertEquals(firstAllocationId, captured.results[0].id)
+        assertTrue(captured.results[0].success)
+        assertEquals(firstEquipmentIds, captured.results[0].allocatedEquipmentIds)
+        assertEquals(secondAllocationId, captured.results[1].id)
+        assertEquals(false, captured.results[1].success)
+        assertTrue(captured.results[1].allocatedEquipmentIds.isEmpty())
+    }
+
+    @Test
+    fun `publishAllocationProcessed sends failure batch message with empty equipment ids`() {
         val allocationId = UUID.randomUUID()
 
         publisher.publishAllocationProcessed(allocationId, false)
 
-        val messageSlot = slot<AllocationProcessedMessage>()
+        val messageSlot = slot<EquipmentAllocated>()
         verify { rabbitTemplate.convertAndSend(RabbitMQConfig.ALLOCATION_RESULT_QUEUE, capture(messageSlot)) }
 
         val captured = messageSlot.captured
-        assertEquals(allocationId, captured.id)
-        assertEquals(false, captured.success)
-        assertTrue(captured.allocatedEquipmentIds.isEmpty())
+        assertEquals(1, captured.results.size)
+        assertEquals(allocationId, captured.results[0].id)
+        assertEquals(false, captured.results[0].success)
+        assertTrue(captured.results[0].allocatedEquipmentIds.isEmpty())
     }
 }
 

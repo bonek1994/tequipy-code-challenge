@@ -1,5 +1,6 @@
 package com.tequipy.challenge.adapter.api.messaging
 
+import com.tequipy.challenge.adapter.api.messaging.events.AllocationCreated
 import com.tequipy.challenge.config.RabbitMQConfig
 import com.tequipy.challenge.domain.service.BatchAllocationService
 import org.awaitility.Awaitility.await
@@ -70,7 +71,7 @@ class AllocationRetryIntegrationTest {
     fun `message sent to allocation queue should be forwarded to BatchAllocationService within the window`() {
         // given
         val allocationId = UUID.randomUUID()
-        val message = AllocationRequestedMessage(id = allocationId, policy = emptyList())
+        val message = AllocationCreated(id = allocationId, policy = emptyList())
 
         // when
         amqpTemplate.convertAndSend(RabbitMQConfig.ALLOCATION_QUEUE, message)

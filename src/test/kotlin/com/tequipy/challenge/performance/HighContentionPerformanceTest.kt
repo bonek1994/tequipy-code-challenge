@@ -4,6 +4,8 @@ import com.tequipy.challenge.adapter.api.web.dto.AllocationResponse
 import com.tequipy.challenge.adapter.api.web.dto.CreateAllocationRequest
 import com.tequipy.challenge.adapter.api.web.dto.EquipmentPolicyRequirementRequest
 import com.tequipy.challenge.domain.model.EquipmentType
+import com.tequipy.challenge.domain.service.AllocationAlgorithmMetrics
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Tag
@@ -50,7 +52,7 @@ import kotlin.system.measureTimeMillis
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
 @Tag("performance")
-class PerformanceTest {
+class HighContentionPerformanceTest {
 
     @LocalServerPort
     private var port: Int = 0
@@ -61,8 +63,13 @@ class PerformanceTest {
     @Autowired
     private lateinit var jdbcTemplate: JdbcTemplate
 
+    @BeforeEach
+    fun resetMetrics() {
+        AllocationAlgorithmMetrics.reset()
+    }
+
     companion object {
-        private val log = LoggerFactory.getLogger(PerformanceTest::class.java)
+        private val log = LoggerFactory.getLogger(HighContentionPerformanceTest::class.java)
         private const val APPLE_COUNT = 5000
         private const val DELL_COUNT = 5000
         private const val ALLOCATION_REQUESTS = 5000
@@ -229,6 +236,9 @@ class PerformanceTest {
         val endToEndMs = httpDurationMs + processingDurationMs
 
         // ---- Report ----
+        val algorithmDurations = AllocationAlgorithmMetrics.snapshotNanos().sorted()
+        val algorithmStats = buildAlgorithmSpeedStats(algorithmDurations)
+
         val report = buildString {
             appendLine("## 🚀 Performance Test Report")
             appendLine()
@@ -274,6 +284,8 @@ class PerformanceTest {
             appendLine("| Metric | Value |")
             appendLine("|--------|-------|")
             appendLine("| Total time (HTTP + processing) | ${endToEndMs} ms |")
+            appendLine()
+            append(renderAllocationAlgorithmSpeedSection(algorithmStats, "|--------|-------|"))
         }
 
         log.info("Performance test completed. Writing report to build/performance-report.md")
@@ -300,9 +312,16 @@ class PerformanceTest {
             "All allocations should be processed within ${PROCESSING_TIMEOUT_MS / 1000}s. " +
                 "${finalCounts.pending} still PENDING out of ${finalCounts.total}."
         )
+
+        assertEquals(
+            finalCounts.settled,
+            algorithmStats.samples,
+            "Algorithm metrics should contain one sample per processed allocation."
+        )
     }
 
     private fun allocationUrl() = "http://localhost:$port/allocations"
+
 
     // -------------------------------------------------------------------------
     // Data seeding

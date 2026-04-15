@@ -1,10 +1,10 @@
-package com.tequipy.challenge.adapter.api.messaging
+package com.tequipy.challenge.adapter.api.messaging.events
 
 import com.tequipy.challenge.domain.model.EquipmentType
 import java.time.Instant
 import java.util.UUID
 
-data class AllocationRequestedMessage(
+data class AllocationCreated(
     val id: UUID,
     val policy: List<PolicyRequirementMessage>,
     val timestamp: Instant = Instant.EPOCH
@@ -16,11 +16,3 @@ data class AllocationRequestedMessage(
         val preferredBrand: String? = null
     )
 }
-
-data class AllocationProcessedMessage(
-    val id: UUID,
-    val success: Boolean,
-    val allocatedEquipmentIds: List<UUID> = emptyList(),
-    val timestamp: Instant = Instant.EPOCH
-)
-

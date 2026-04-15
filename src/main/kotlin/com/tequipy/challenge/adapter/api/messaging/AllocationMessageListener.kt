@@ -1,5 +1,6 @@
 package com.tequipy.challenge.adapter.api.messaging
 
+import com.tequipy.challenge.adapter.api.messaging.events.AllocationCreated
 import com.tequipy.challenge.config.RabbitMQConfig
 import com.tequipy.challenge.domain.command.ProcessAllocationCommand
 import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
@@ -15,7 +16,7 @@ class AllocationMessageListener(
     private val logger = KotlinLogging.logger {}
 
     @RabbitListener(queues = [RabbitMQConfig.ALLOCATION_QUEUE])
-    fun onAllocationCreated(message: AllocationRequestedMessage) {
+    fun onAllocationCreated(message: AllocationCreated) {
         logger.info { "Received allocation message: id=${message.id}" }
         batchAllocationCollector.submit(
             ProcessAllocationCommand(
