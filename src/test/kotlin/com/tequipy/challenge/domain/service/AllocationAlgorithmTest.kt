@@ -129,6 +129,23 @@ class AllocationAlgorithmTest {
     }
 
     @Test
+    fun `allocate should handle all equipment with same purchase date without error`() {
+        // given - both have identical scores; algorithm must still pick one
+        val monitor1 = equipment(type = EquipmentType.MONITOR, condition = 0.8, purchaseDate = LocalDate.of(2023, 6, 1))
+        val monitor2 = equipment(type = EquipmentType.MONITOR, condition = 0.8, purchaseDate = LocalDate.of(2023, 6, 1))
+
+        // when
+        val result = algorithm.allocate(
+            policy = listOf(EquipmentPolicyRequirement(type = EquipmentType.MONITOR)),
+            availableEquipment = listOf(monitor1, monitor2)
+        )
+
+        // then
+        assertNotNull(result)
+        assertEquals(1, result!!.size)
+    }
+
+    @Test
     fun `allocate should prefer newer equipment when condition scores are equal`() {
         // given
         val olderMonitor = equipment(type = EquipmentType.MONITOR, condition = 0.8, purchaseDate = LocalDate.of(2020, 1, 1))
