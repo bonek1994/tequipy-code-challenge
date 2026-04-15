@@ -141,12 +141,17 @@ combinations across all slots to maximise total quality.
 
 6. **Scoring function** — each candidate is scored as:
    ```
-   score = brandBonus + conditionScore
+   score = brandBonus + conditionScore + recencyScore
    ```
-   where `brandBonus = 10.0` if the candidate's brand matches the slot's
-   `preferredBrand` (case-insensitive), otherwise `0.0`. The large bonus makes brand
-   a **strong soft preference** without being a hard requirement. Better condition scores
-   and (implicitly via candidate ordering) newer purchase dates are secondary tiebreakers.
+   - `brandBonus = 10.0` if the candidate's brand matches the slot's `preferredBrand`
+     (case-insensitive), otherwise `0.0`. The large bonus makes brand a **strong soft
+     preference** without being a hard requirement.
+   - `conditionScore` is the equipment's raw condition value in `[0.0, 1.0]`.
+   - `recencyScore` is the equipment's normalized purchase date in `[0.0, 1.0]`, where
+     `0.0` is the oldest item in the eligible pool and `1.0` is the newest. When all
+     items share the same purchase date, every item receives `0.0`. Recency acts as a
+     **tiebreaker**: it can only swing a decision when two candidates are otherwise
+     equal (or very close) on brand preference and condition.
 
 ### Time Complexity
 
