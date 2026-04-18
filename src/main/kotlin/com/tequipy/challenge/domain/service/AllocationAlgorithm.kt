@@ -53,8 +53,9 @@ class AllocationAlgorithm {
         val index = buildIndex(eligible, slots, recencyScores)
 
         // Process most-constrained slots first (fewest hard-constraint candidates).
-        // Slots whose hard-constraint bucket is absent (size = 0) have no possible match and
-        // are also placed first so the algorithm fails fast without wasting work on other slots.
+        // Slots whose hard-constraint bucket has no candidates (size = 0) have no possible
+        // match and are also placed first so the algorithm fails fast without wasting work on
+        // other slots.
         val sortedSlots = slots.sortedBy { slot ->
             val hardKey = EquipmentKey(slot.type, slot.minimumConditionScore, null)
             index[hardKey]?.size ?: 0
