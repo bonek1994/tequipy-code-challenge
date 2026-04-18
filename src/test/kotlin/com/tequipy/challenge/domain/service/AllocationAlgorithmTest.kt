@@ -96,6 +96,35 @@ class AllocationAlgorithmTest {
     }
 
     @Test
+    fun `allocate should satisfy multiple slots with different minimumConditionScore from shared equipment pool`() {
+        // given - three slots with different minScore requirements compete for three items.
+        // The most constrained slots (larger minScore, smaller candidate bucket) must be served
+        // first so that no slot is left without a valid candidate.
+        val high = equipment(type = EquipmentType.MONITOR, condition = 0.92)   // satisfies 0.8 and 0.7
+        val mid = equipment(type = EquipmentType.MONITOR, condition = 0.82)    // satisfies 0.8 and 0.7
+        val low = equipment(type = EquipmentType.MONITOR, condition = 0.73)    // satisfies 0.7 only
+
+        // when
+        val result = algorithm.allocate(
+            policy = listOf(
+                EquipmentPolicyRequirement(type = EquipmentType.MONITOR, minimumConditionScore = 0.8),
+                EquipmentPolicyRequirement(type = EquipmentType.MONITOR, minimumConditionScore = 0.8),
+                EquipmentPolicyRequirement(type = EquipmentType.MONITOR, minimumConditionScore = 0.7)
+            ),
+            availableEquipment = listOf(high, mid, low)
+        )
+
+        // then - all three slots are satisfied; the 0.7-slot gets the low-score item
+        assertNotNull(result)
+        assertEquals(3, result!!.size)
+        assertEquals(3, result.map { it.id }.toSet().size)
+        val allocatedIds = result.map { it.id }.toSet()
+        assertTrue(allocatedIds.contains(high.id))
+        assertTrue(allocatedIds.contains(mid.id))
+        assertTrue(allocatedIds.contains(low.id))
+    }
+
+    @Test
     fun `allocate should ignore equipment that is not available`() {
         // given
         val reservedMonitor = equipment(type = EquipmentType.MONITOR, condition = 0.95).copy(state = EquipmentState.RESERVED)
