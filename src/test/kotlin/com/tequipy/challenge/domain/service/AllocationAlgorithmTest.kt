@@ -184,6 +184,50 @@ class AllocationAlgorithmTest {
         assertEquals(listOf(apple.id), result!!.map { it.id })
     }
 
+    @Test
+    fun `allocate should fall back to any brand when preferred brand is unavailable`() {
+        // given - only a Dell monitor is available; policy prefers LG
+        val dell = equipment(brand = "Dell", model = "U2722D", type = EquipmentType.MONITOR, condition = 0.85)
+
+        // when
+        val result = algorithm.allocate(
+            policy = listOf(
+                EquipmentPolicyRequirement(
+                    type = EquipmentType.MONITOR,
+                    minimumConditionScore = 0.8,
+                    preferredBrand = "LG"
+                )
+            ),
+            availableEquipment = listOf(dell)
+        )
+
+        // then - allocation still succeeds using the fallback (no-brand) bucket
+        assertNotNull(result)
+        assertEquals(listOf(dell.id), result!!.map { it.id })
+    }
+
+    @Test
+    fun `allocate should prefer brand match over higher condition score in fallback`() {
+        // given
+        val lg = equipment(brand = "LG", model = "27UK850", type = EquipmentType.MONITOR, condition = 0.80)
+        val dell = equipment(brand = "Dell", model = "U3223QE", type = EquipmentType.MONITOR, condition = 0.90)
+
+        // when - policy prefers LG; LG has lower condition score but brand bonus makes it win
+        val result = algorithm.allocate(
+            policy = listOf(
+                EquipmentPolicyRequirement(
+                    type = EquipmentType.MONITOR,
+                    preferredBrand = "LG"
+                )
+            ),
+            availableEquipment = listOf(lg, dell)
+        )
+
+        // then
+        assertNotNull(result)
+        assertEquals(listOf(lg.id), result!!.map { it.id })
+    }
+
     private fun equipment(
         id: UUID = UUID.randomUUID(),
         type: EquipmentType,
