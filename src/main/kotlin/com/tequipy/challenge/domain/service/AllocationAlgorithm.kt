@@ -53,6 +53,8 @@ class AllocationAlgorithm {
         val index = buildIndex(eligible, slots, recencyScores)
 
         // Process most-constrained slots first (fewest hard-constraint candidates).
+        // Slots whose hard-constraint bucket is absent (size = 0) have no possible match and
+        // are also placed first so the algorithm fails fast without wasting work on other slots.
         val sortedSlots = slots.sortedBy { slot ->
             val hardKey = EquipmentKey(slot.type, slot.minimumConditionScore, null)
             index[hardKey]?.size ?: 0
@@ -75,9 +77,11 @@ class AllocationAlgorithm {
      *
      * Two keys are generated for every slot that carries a brand preference:
      * - a full key `(type, minimumConditionScore, preferredBrand)` whose list contains only
-     *   brand-matching equipment, and
+     *   brand-matching equipment, sorted by `score(preferredBrand, recencyScores)` which
+     *   applies [BRAND_BONUS] to matching brands plus conditionScore and recency, and
      * - a fallback key `(type, minimumConditionScore, null)` whose list contains all
-     *   equipment that satisfies the hard constraints regardless of brand.
+     *   equipment that satisfies the hard constraints regardless of brand, sorted by
+     *   `score(null, recencyScores)` (conditionScore + recency only, no brand bonus).
      *
      * Slots without a brand preference produce only the no-brand key. Within each bucket
      * candidates are sorted best-score-first so [findBestCandidate] can simply take the
