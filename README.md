@@ -154,6 +154,7 @@ to assign available equipment to a list of policy requirements (slots).
 |----------|---------|
 | S | Total number of slots (Σ quantity across all requirements) |
 | K | `CANDIDATE_MULTIPLIER` (default 3) |
+| G | Number of slots sharing the same constraint key (type, minimumConditionScore) |
 
 - **Worst-case:** O(S · G·K) — for each slot, scan up to G·K candidates to find the
   first unused one. In practice this is very fast because:
@@ -167,7 +168,7 @@ to assign available equipment to a list of policy requirements (slots).
 | Knob | Location | Effect |
 |------|----------|--------|
 | `CANDIDATE_MULTIPLIER` | `AllocationAlgorithm.kt` | Higher value → more candidates considered per slot → higher chance of finding a match. Default 3 is a good balance for typical workloads (S ≤ 4). |
-| Scoring weights | `Equipment.score()` in `AllocationAlgorithm.kt` | Adjust `brandBonus` (currently 2.0, range 1–2) to control how strongly brand preference influences selection relative to condition score. Setting it to 0 makes brand irrelevant. |
+| Scoring weights | `Equipment.score()` in `AllocationAlgorithm.kt` | Adjust `brandBonus` (currently 2.0) to control how strongly brand preference influences selection relative to condition score. Setting it to 0 makes brand irrelevant. |
 | Slot ordering | `processingOrder` in `AllocationAlgorithm.kt` | Currently most-constrained-first. Could be changed to most-demanded-first for different fairness properties. |
 
 ### Trade-offs vs. Other Alternatives
