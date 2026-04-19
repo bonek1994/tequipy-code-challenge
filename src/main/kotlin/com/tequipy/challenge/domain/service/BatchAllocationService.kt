@@ -23,8 +23,11 @@ import kotlin.system.measureNanoTime
  * - One `SELECT … FOR UPDATE SKIP LOCKED` covers the entire batch (not one per request).
  * - A generous oversample (`totalSlots × LOCK_OVERSAMPLE_FACTOR`) is locked, not the full
  *   eligible pool, so lock scope stays bounded regardless of inventory size.
- * - Requests with the strictest `minimumConditionScore` are processed first within the batch
- *   so they get first pick of the locked pool (most-constrained-first ordering).
+ * - Requests are ordered by **most-constrained-total first**: the primary sort key is the
+ *   sum of `quantity × minimumConditionScore` across all policy requirements (higher total
+ *   constraint weight = processed earlier). Ties are broken by total slot count descending
+ *   so requests that need more items also receive priority. This gives the hardest-to-satisfy
+ *   requests first pick of the locked pool while keeping the ordering deterministic.
  * - [AllocationAlgorithm] runs unchanged per request; quality is fully preserved.
  * - Idempotency is enforced via [AllocationProcessingRepository.tryStart]; duplicate
  *   messages receive cached results without re-running the algorithm.
@@ -160,9 +163,13 @@ class BatchAllocationService(
         commands: List<ProcessAllocationCommand>,
         pool: List<Equipment>
     ): AllocateResult {
-        val sorted = commands.sortedByDescending { cmd ->
-            cmd.policy.mapNotNull { it.minimumConditionScore }.maxOrNull() ?: 0.0
-        }
+        val sorted = commands.sortedWith(
+            compareByDescending<ProcessAllocationCommand> { cmd ->
+                cmd.policy.sumOf { it.quantity * (it.minimumConditionScore ?: 0.0) }
+            }.thenByDescending { cmd ->
+                cmd.policy.sumOf { it.quantity }
+            }
+        )
 
         val usedIds = mutableSetOf<UUID>()
         val toReserve = mutableListOf<Equipment>()

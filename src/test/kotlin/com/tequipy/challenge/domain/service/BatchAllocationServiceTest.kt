@@ -132,14 +132,15 @@ class BatchAllocationServiceTest {
     }
 
     // -------------------------------------------------------------------------
-    // Most-constrained-first ordering
+    // Most-constrained-total-first ordering
     // -------------------------------------------------------------------------
 
     @Test
     fun `processBatch processes most constrained request first when pool is limited`() {
         // Two commands; cmd_strict needs score >= 0.9, cmd_loose just needs >= 0.5.
         // Only one equipment available with score 0.92 (satisfies both).
-        // Most-constrained-first means cmd_strict wins; cmd_loose fails.
+        // Total constraint weight: strict = 1 × 0.9 = 0.9, loose = 1 × 0.5 = 0.5.
+        // cmd_strict wins first pick; cmd_loose fails.
         val cmdStrict = command(policy = listOf(req(EquipmentType.MONITOR, 1, minimumConditionScore = 0.9)))
         val cmdLoose  = command(policy = listOf(req(EquipmentType.MONITOR, 1, minimumConditionScore = 0.5)))
         val highScore = equipment(EquipmentType.MONITOR, conditionScore = 0.92)
@@ -159,6 +160,36 @@ class BatchAllocationServiceTest {
                 results.size == 2 &&
                     results.any { it.allocationId == cmdStrict.allocationId && it.success } &&
                     results.any { it.allocationId == cmdLoose.allocationId && !it.success && it.allocatedEquipmentIds.isEmpty() }
+            })
+        }
+    }
+
+    @Test
+    fun `processBatch uses total slot count as tiebreaker when condition weight is equal`() {
+        // Both commands have the same total constraint weight (0.0 each — no minimumConditionScore),
+        // but cmd_large needs 2 monitors and cmd_small needs 1.
+        // Tiebreaker: more total slots → processed first.
+        // Pool has exactly 2 monitors; cmd_large takes both, cmd_small fails.
+        val cmdLarge = command(policy = listOf(req(EquipmentType.MONITOR, 2)))
+        val cmdSmall = command(policy = listOf(req(EquipmentType.MONITOR, 1)))
+        val eq1 = equipment(EquipmentType.MONITOR, conditionScore = 0.8)
+        val eq2 = equipment(EquipmentType.MONITOR, conditionScore = 0.7)
+
+        every { allocationProcessingRepository.tryStart(any()) } returns true
+        every { equipmentRepository.findAvailableWithMinConditionScore(any(), any()) } returns listOf(eq1, eq2)
+        every { equipmentRepository.findByIdsForUpdate(any(), any()) } returns listOf(eq1, eq2)
+        every { equipmentRepository.updateAll(any()) } answers { firstArg() }
+        every { allocationProcessingRepository.complete(any(), any(), any()) } answers {
+            AllocationProcessingRecord(firstArg(), secondArg(), thirdArg())
+        }
+
+        service.processBatch(listOf(cmdSmall, cmdLarge)) // deliberately submit small first
+
+        verify(exactly = 1) {
+            allocationEventPublisher.publishAllocationProcessedBatch(match { results ->
+                results.size == 2 &&
+                    results.any { it.allocationId == cmdLarge.allocationId && it.success && it.allocatedEquipmentIds.size == 2 } &&
+                    results.any { it.allocationId == cmdSmall.allocationId && !it.success && it.allocatedEquipmentIds.isEmpty() }
             })
         }
     }

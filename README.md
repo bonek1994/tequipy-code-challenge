@@ -257,7 +257,9 @@ BatchAllocationCollector  (@Scheduled every 5 000 ms)
         ├─ ONE findByIdsForUpdate(candidateIds, globalMin)
         │    Locks only totalSlots × 2 rows (bounded oversample)
         │
-        ├─ Sort commands most-constrained-first
+        ├─ Sort commands most-constrained-total-first
+        │    Primary key: Σ(quantity × minimumConditionScore)
+        │    Tiebreaker:  total slot count (descending)
         │
         ├─ For each command:
         │    pool = lockedPool − usedIds
@@ -282,6 +284,28 @@ BatchAllocationCollector  (@Scheduled every 5 000 ms)
 
 Since allocation creation already returns **HTTP 202** (accepted, processing is async),
 the ≤ 5 s batching window is transparent to API clients.
+
+### How Batching Cooperates with the Algorithm
+
+`BatchAllocationService` and `AllocationAlgorithm` have a clean division of responsibilities:
+
+| Responsibility | Owner |
+|---------------|-------|
+| Accumulate requests into a window | `BatchAllocationCollector` |
+| Lock a single shared pool from the DB | `BatchAllocationService` |
+| Order requests to reduce contention for scarce items | `BatchAllocationService` |
+| Score and select equipment per request | `AllocationAlgorithm` |
+
+**Key interaction — shared pool, shrinking view:**
+
+1. The service locks one pool of candidates that covers the entire batch (`totalSlots × LOCK_OVERSAMPLE_FACTOR`).
+2. Requests are sorted by **most-constrained-total first**:
+   - **Primary key**: `Σ (quantity × minimumConditionScore)` — a request asking for many items with strict quality requirements has a higher total weight and is processed first.
+   - **Tiebreaker**: `Σ quantity` (total slots) — when weights are equal, requests needing more items are processed first.
+3. For each request, the algorithm sees only the pool items not yet claimed by earlier requests (`pool − usedIds`). This shrinking view means ordering matters: harder-to-satisfy requests must run first so they are not starved by simpler ones.
+4. The algorithm itself is **stateless** — it knows nothing about batching. Its greedy, most-constrained-first slot selection within a single request is orthogonal to the between-request ordering managed by the service.
+
+**Why split this way?** Separating pool locking and request ordering into `BatchAllocationService` from per-request scoring in `AllocationAlgorithm` keeps each class focused and independently testable. If the ordering heuristic needs to change (e.g., fair-share or priority tiers), only `BatchAllocationService` needs updating — the algorithm is unaffected.
 
 ### Configuration
 
