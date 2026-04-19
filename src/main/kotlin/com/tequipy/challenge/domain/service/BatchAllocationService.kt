@@ -23,11 +23,12 @@ import kotlin.system.measureNanoTime
  * - One `SELECT … FOR UPDATE SKIP LOCKED` covers the entire batch (not one per request).
  * - A generous oversample (`totalSlots × LOCK_OVERSAMPLE_FACTOR`) is locked, not the full
  *   eligible pool, so lock scope stays bounded regardless of inventory size.
- * - Requests are ordered by **most-constrained-total first**: the primary sort key is the
- *   sum of `quantity × minimumConditionScore` across all policy requirements (higher total
- *   constraint weight = processed earlier). Ties are broken by total slot count descending
- *   so requests that need more items also receive priority. This gives the hardest-to-satisfy
- *   requests first pick of the locked pool while keeping the ordering deterministic.
+ * - Requests are ordered by **most-constrained-total first**: each policy requirement
+ *   contributes `quantity × (CONSTRAINT_BASE_WEIGHT + preferredBrandBonus + minimumConditionScore)`
+ *   to the total weight. `CONSTRAINT_BASE_WEIGHT = 10.0` makes quantity the primary scale;
+ *   `PREFERRED_BRAND_WEIGHT = 2.0` is added when a preferred brand is specified; and
+ *   `minimumConditionScore` (in [0, 1]) adds the strictness of the quality threshold. Ties
+ *   are broken by total slot count descending.
  * - [AllocationAlgorithm] runs unchanged per request; quality is fully preserved.
  * - Idempotency is enforced via [AllocationProcessingRepository.tryStart]; duplicate
  *   messages receive cached results without re-running the algorithm.
@@ -42,6 +43,23 @@ class BatchAllocationService(
     companion object {
         const val MAX_BATCH_SIZE = 100
         private const val LOCK_OVERSAMPLE_FACTOR = 2
+
+        /**
+         * Base constraint weight applied to every slot in the ordering heuristic.
+         * Ensures that requests needing more items always rank above requests needing
+         * fewer items when all other constraint components are equal. Set to 10.0 so
+         * that it sits on the same scale as [PREFERRED_BRAND_WEIGHT] and
+         * [AllocationAlgorithm.BRAND_BONUS].
+         */
+        private const val CONSTRAINT_BASE_WEIGHT = 10.0
+
+        /**
+         * Additional weight added per slot when a policy requirement specifies a
+         * preferred brand. Reflects that brand-preferring requests compete more
+         * intensely for a narrower subset of the locked pool.
+         */
+        private const val PREFERRED_BRAND_WEIGHT = 2.0
+
         private val logger = KotlinLogging.logger {}
     }
 
@@ -165,7 +183,14 @@ class BatchAllocationService(
     ): AllocateResult {
         val sorted = commands.sortedWith(
             compareByDescending<ProcessAllocationCommand> { cmd ->
-                cmd.policy.sumOf { it.quantity * (it.minimumConditionScore ?: 0.0) }
+                // Weight per requirement = quantity × (base + brandBonus + minimumConditionScore).
+                // CONSTRAINT_BASE_WEIGHT (10.0) per slot ensures quantity contributes at the same
+                // scale as the constraint bonuses. PREFERRED_BRAND_WEIGHT (2.0) reflects that
+                // brand-preferring requirements compete for a narrower subset of the pool.
+                cmd.policy.sumOf { req ->
+                    val brandBonus = if (req.preferredBrand != null) PREFERRED_BRAND_WEIGHT else 0.0
+                    req.quantity * (CONSTRAINT_BASE_WEIGHT + brandBonus + (req.minimumConditionScore ?: 0.0))
+                }
             }.thenByDescending { cmd ->
                 cmd.policy.sumOf { it.quantity }
             }

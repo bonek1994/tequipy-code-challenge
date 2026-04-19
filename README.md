@@ -258,8 +258,8 @@ BatchAllocationCollector  (@Scheduled every 5 000 ms)
         │    Locks only totalSlots × 2 rows (bounded oversample)
         │
         ├─ Sort commands most-constrained-total-first
-        │    Primary key: Σ(quantity × minimumConditionScore)
-        │    Tiebreaker:  total slot count (descending)
+        │    Per requirement: quantity × (10 + preferredBrandBonus + minimumConditionScore)
+        │    Tiebreaker: total slot count (descending)
         │
         ├─ For each command:
         │    pool = lockedPool − usedIds
@@ -299,11 +299,19 @@ the ≤ 5 s batching window is transparent to API clients.
 **Key interaction — shared pool, shrinking view:**
 
 1. The service locks one pool of candidates that covers the entire batch (`totalSlots × LOCK_OVERSAMPLE_FACTOR`).
-2. Requests are sorted by **most-constrained-total first**:
-   - **Primary key**: `Σ (quantity × minimumConditionScore)` — a request asking for many items with strict quality requirements has a higher total weight and is processed first.
-   - **Tiebreaker**: `Σ quantity` (total slots) — when weights are equal, requests needing more items are processed first.
-3. For each request, the algorithm sees only the pool items not yet claimed by earlier requests (`pool − usedIds`). This shrinking view means ordering matters: harder-to-satisfy requests must run first so they are not starved by simpler ones.
+2. Requests are sorted by **most-constrained-total first** using:
+   ```
+   Σ req.quantity × (CONSTRAINT_BASE_WEIGHT + preferredBrandBonus + minimumConditionScore)
+   ```
+   - `CONSTRAINT_BASE_WEIGHT = 10.0` per slot ensures quantity is the primary scale — bigger requests (more items needed) naturally score higher.
+   - `preferredBrandBonus = 2.0` (added when `preferredBrand != null`) — reflects that brand-preferring requests compete for a narrower subset of the locked pool and need priority access.
+   - `minimumConditionScore ∈ [0, 1]` — adds the strictness of the quality threshold.
+   - **Tiebreaker**: `Σ quantity` (total slots) — used when total weights are exactly equal.
+3. For each request (in descending weight order), the algorithm sees only the pool items not yet claimed by earlier requests (`pool − usedIds`). This shrinking view means ordering matters: harder-to-satisfy requests must run first so they are not starved by simpler ones.
 4. The algorithm itself is **stateless** — it knows nothing about batching. Its greedy, most-constrained-first slot selection within a single request is orthogonal to the between-request ordering managed by the service.
+
+**What happens when only some requests in a batch can be fulfilled?**
+Each request is processed independently. If the algorithm returns `null` for a request (not enough matching equipment in the remaining pool), that request is marked `FAILED` and its result is published. Requests that succeeded are marked `ALLOCATED` and their equipment is reserved. All outcomes — both `ALLOCATED` and `FAILED` — are published together in a single batch message. This means a partial batch (some succeed, some fail) is handled transparently: each `AllocationProcessedMessageListener` call receives the result for its own allocation ID and updates the allocation state accordingly.
 
 **Why split this way?** Separating pool locking and request ordering into `BatchAllocationService` from per-request scoring in `AllocationAlgorithm` keeps each class focused and independently testable. If the ordering heuristic needs to change (e.g., fair-share or priority tiers), only `BatchAllocationService` needs updating — the algorithm is unaffected.
 
