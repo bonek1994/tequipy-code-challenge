@@ -109,6 +109,36 @@ class AllocationControllerIntegrationTest {
     }
 
     @Test
+    fun `allocation should prefer equipment with higher condition score when brand and recency are equal`() {
+        val lowCondition = restTemplate.postForEntity(
+            equipmentUrl(),
+            EquipmentRequest(EquipmentType.KEYBOARD, "Logitech", "K380", 0.5, LocalDate.of(2023, 3, 1)),
+            EquipmentResponse::class.java
+        ).body!!
+
+        val highCondition = restTemplate.postForEntity(
+            equipmentUrl(),
+            EquipmentRequest(EquipmentType.KEYBOARD, "Logitech", "K380", 0.9, LocalDate.of(2023, 3, 1)),
+            EquipmentResponse::class.java
+        ).body!!
+
+        val created = restTemplate.postForEntity(
+            allocationUrl(),
+            CreateAllocationRequest(
+                policy = listOf(
+                    EquipmentPolicyRequirementRequest(EquipmentType.KEYBOARD, quantity = 1)
+                )
+            ),
+            AllocationResponse::class.java
+        )
+
+        assertEquals(HttpStatus.ACCEPTED, created.statusCode)
+        val allocated = waitForAllocation(created.body!!.id, AllocationState.ALLOCATED)
+        assertEquals(1, allocated.allocatedEquipmentIds.size)
+        assertEquals(highCondition.id, allocated.allocatedEquipmentIds.single())
+    }
+
+    @Test
     fun `allocation should fail when policy cannot be satisfied`() {
         val created = restTemplate.postForEntity(
             allocationUrl(),
