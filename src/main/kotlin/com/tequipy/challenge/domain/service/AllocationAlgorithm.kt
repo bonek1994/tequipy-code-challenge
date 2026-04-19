@@ -13,9 +13,7 @@ class AllocationAlgorithm {
          * Multiplier applied to the number of slots in a constraint group to
          * determine how many top-scoring candidates to consider per slot.
          *
-         * e.g. request for 5 monitors → 5 × 4 = top-20 candidates per slot.
-         * This keeps the search space bounded while giving the algorithm enough
-         * room to find a globally optimal combination.
+         * e.g. request for 5 monitors → 5 × 3 = top-15 candidates per slot.
          */
         const val CANDIDATE_MULTIPLIER = 3
 
@@ -24,7 +22,7 @@ class AllocationAlgorithm {
          * in a policy requirement. Used both by the algorithm and by the batch
          * service when pre-ranking candidates before locking.
          */
-        const val BRAND_BONUS = 10.0
+        const val BRAND_BONUS = 2.0
     }
 
     fun allocate(
@@ -35,15 +33,13 @@ class AllocationAlgorithm {
         val slots = policy.flatMap { req -> List(req.quantity) { req.copy(quantity = 1) } }
         if (slots.isEmpty()) return emptyList()
 
-        val recencyScores = computeRecencyScores(eligible)
-
         val slotsPerGroup = slots.groupingBy { it.constraintKey() }.eachCount()
 
         val candidatesPerSlot = slots.map { slot ->
             val groupSize = slotsPerGroup[slot.constraintKey()] ?: 1
             eligible
                 .filter { it.matchesHardConstraints(slot) }
-                .sortedByDescending { it.score(slot, recencyScores) }
+                .sortedByDescending { it.score(slot) }
                 .take(groupSize * CANDIDATE_MULTIPLIER)
         }
 
@@ -51,50 +47,26 @@ class AllocationAlgorithm {
 
         val processingOrder = slots.indices.sortedBy { candidatesPerSlot[it].size }
 
-        var bestScore = Double.NEGATIVE_INFINITY
-        var bestSelection: List<Equipment>? = null
+        val usedIds = mutableSetOf<UUID>()
+        val chosen = mutableListOf<Equipment>()
 
-        fun search(pos: Int, usedIds: MutableSet<UUID>, chosen: MutableList<Equipment>, score: Double) {
-            if (pos == processingOrder.size) {
-                if (score > bestScore) {
-                    bestScore = score
-                    bestSelection = chosen.toList()
-                }
-                return
-            }
+        for (pos in processingOrder.indices) {
             val slotIdx = processingOrder[pos]
-            val candidates = candidatesPerSlot[slotIdx].filterNot { it.id in usedIds }
-            for (candidate in candidates) {
-                usedIds += candidate.id
-                chosen += candidate
-                search(pos + 1, usedIds, chosen, score + candidate.score(slots[slotIdx], recencyScores))
-                chosen.removeAt(chosen.lastIndex)
-                usedIds -= candidate.id
-            }
+            val candidate = candidatesPerSlot[slotIdx].firstOrNull { it.id !in usedIds }
+                ?: return null
+            usedIds += candidate.id
+            chosen += candidate
         }
 
-        search(0, linkedSetOf(), mutableListOf(), 0.0)
-        return bestSelection
-    }
-
-    private fun computeRecencyScores(eligible: List<Equipment>): Map<UUID, Double> {
-        if (eligible.isEmpty()) return emptyMap()
-        val minDate = eligible.minOf { it.purchaseDate }
-        val maxDate = eligible.maxOf { it.purchaseDate }
-        val rangeDays = minDate.until(maxDate, java.time.temporal.ChronoUnit.DAYS).toDouble()
-        return eligible.associate { equipment ->
-            val ageDays = minDate.until(equipment.purchaseDate, java.time.temporal.ChronoUnit.DAYS).toDouble()
-            equipment.id to if (rangeDays == 0.0) 0.0 else ageDays / rangeDays
-        }
+        return chosen
     }
 
     private fun Equipment.matchesHardConstraints(req: EquipmentPolicyRequirement): Boolean =
         type == req.type && (req.minimumConditionScore == null || conditionScore >= req.minimumConditionScore)
 
-    private fun Equipment.score(req: EquipmentPolicyRequirement, recencyScores: Map<UUID, Double>): Double {
+    private fun Equipment.score(req: EquipmentPolicyRequirement): Double {
         val brandBonus = if (req.preferredBrand?.equals(brand, ignoreCase = true) == true) BRAND_BONUS else 0.0
-        val recency = recencyScores[id] ?: 0.0
-        return brandBonus + conditionScore + recency
+        return brandBonus + conditionScore
     }
 
     private fun EquipmentPolicyRequirement.constraintKey() = ConstraintKey(type, minimumConditionScore)

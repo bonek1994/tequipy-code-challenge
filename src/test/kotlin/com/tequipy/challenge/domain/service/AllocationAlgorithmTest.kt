@@ -72,7 +72,7 @@ class AllocationAlgorithmTest {
     }
 
     @Test
-    fun `allocate should use globally feasible combination for competing slots`() {
+    fun `allocate should satisfy all competing slots by processing most constrained first`() {
         // given
         val strongMonitor = equipment(type = EquipmentType.MONITOR, brand = "Dell", model = "Strong", condition = 0.95)
         val mediumMonitor = equipment(type = EquipmentType.MONITOR, brand = "LG", model = "Medium", condition = 0.75)
@@ -143,23 +143,6 @@ class AllocationAlgorithmTest {
         // then
         assertNotNull(result)
         assertEquals(1, result!!.size)
-    }
-
-    @Test
-    fun `allocate should prefer newer equipment when condition scores are equal`() {
-        // given
-        val olderMonitor = equipment(type = EquipmentType.MONITOR, condition = 0.8, purchaseDate = LocalDate.of(2020, 1, 1))
-        val newerMonitor = equipment(type = EquipmentType.MONITOR, condition = 0.8, purchaseDate = LocalDate.of(2024, 1, 1))
-
-        // when
-        val result = algorithm.allocate(
-            policy = listOf(EquipmentPolicyRequirement(type = EquipmentType.MONITOR)),
-            availableEquipment = listOf(olderMonitor, newerMonitor)
-        )
-
-        // then
-        assertNotNull(result)
-        assertEquals(listOf(newerMonitor.id), result!!.map { it.id })
     }
 
     @Test

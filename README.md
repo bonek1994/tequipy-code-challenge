@@ -113,9 +113,8 @@ src/main/kotlin/com/tequipy/challenge/
 
 ### Algorithmic Approach
 
-The algorithm finds a **globally optimal** assignment of available equipment to a list of
-policy requirements (slots). It is **not** a greedy per-slot matcher — it explores
-combinations across all slots to maximise total quality.
+The algorithm uses a **greedy per-slot** approach with **most-constrained-first** ordering
+to assign available equipment to a list of policy requirements (slots).
 
 **Step-by-step:**
 
@@ -124,34 +123,30 @@ combinations across all slots to maximise total quality.
 
 2. **Hard-constraint filtering** — for every slot, candidates are filtered by
    `type` (exact match) and `minimumConditionScore` (≥ threshold). Items that fail
-   either constraint are eliminated.
+   either constraint are eliminated. Only `AVAILABLE` equipment is considered.
 
-3. **Top-K pruning** — candidates for each slot are sorted by a scoring function and
+3. **Top-K pruning** — candidates for each slot are sorted by the scoring function and
    only the top `groupSize × CANDIDATE_MULTIPLIER` (default multiplier = **3**) are
    retained. `groupSize` is the number of slots sharing the same constraint key
    `(type, minimumConditionScore)`, so a request for 5 monitors keeps 5 × 3 = 15
-   candidates per slot. This bounds the search space while leaving enough room for
-   globally optimal combinations.
+   candidates per slot.
 
 4. **Most-constrained-first ordering** — slots are sorted by ascending candidate-list
-   size so the tightest constraints are satisfied first, pruning the search tree early.
+   size so the most tightly constrained slots are processed first, reducing the chance
+   of a later slot finding no available candidate.
 
-5. **Backtracking search** — a depth-first search enumerates all valid assignments
-   (no equipment used twice), tracking the combination with the highest total score.
+5. **Greedy selection** — for each slot (in most-constrained-first order), the
+   highest-scoring candidate not yet assigned to another slot is selected. If no
+   candidate is available for any slot, the allocation returns `null` (failed).
 
 6. **Scoring function** — each candidate is scored as:
    ```
-   score = brandBonus + conditionScore + recencyScore
+   score = brandBonus + conditionScore
    ```
-   - `brandBonus = 10.0` if the candidate's brand matches the slot's `preferredBrand`
-     (case-insensitive), otherwise `0.0`. The large bonus makes brand a **strong soft
-     preference** without being a hard requirement.
+   - `brandBonus = 2.0` if the candidate's brand matches the slot's `preferredBrand`
+     (case-insensitive), otherwise `0.0`. The bonus makes brand a **soft preference**
+     without being a hard requirement.
    - `conditionScore` is the equipment's raw condition value in `[0.0, 1.0]`.
-   - `recencyScore` is the equipment's normalized purchase date in `[0.0, 1.0]`, where
-     `0.0` is the oldest item in the eligible pool and `1.0` is the newest. When all
-     items share the same purchase date, every item receives `0.0`. Recency acts as a
-     **tiebreaker**: it can only swing a decision when two candidates are otherwise
-     equal (or very close) on brand preference and condition.
 
 ### Time Complexity
 
@@ -159,13 +154,11 @@ combinations across all slots to maximise total quality.
 |----------|---------|
 | S | Total number of slots (Σ quantity across all requirements) |
 | K | `CANDIDATE_MULTIPLIER` (default 3) |
-| G | Number of slots in the largest constraint group |
 
-- **Worst-case:** O((G·K)^S) — the backtracking tree explores up to G·K branches at
-  each of S levels. In practice this is manageable because:
+- **Worst-case:** O(S · G·K) — for each slot, scan up to G·K candidates to find the
+  first unused one. In practice this is very fast because:
   - Typical S ≤ 4 (one allocation request equips one employee).
-  - K = 3, so per-slot branching is ≤ 12 for a group of 4 identical slots.
-  - Most-constrained-first ordering and the shared-ID exclusion prune the tree aggressively.
+  - Most-constrained-first ordering reduces the chance of conflicts late in processing.
 - **Observed performance** (from [benchmark report](#performance-tests--reports)):
   P50 = **0.076 ms**, P99 = **0.669 ms** per allocation over 5 000 invocations.
 
@@ -173,18 +166,18 @@ combinations across all slots to maximise total quality.
 
 | Knob | Location | Effect |
 |------|----------|--------|
-| `CANDIDATE_MULTIPLIER` | `AllocationAlgorithm.kt` | Higher value → larger search space → better quality, slower. Lower value → faster but may miss the optimal combination. Default 3 is a good balance for typical workloads (S ≤ 4). |
-| Scoring weights | `Equipment.score()` in `AllocationAlgorithm.kt` | Adjust `brandBonus` (currently 10.0) to control how strongly brand preference dominates condition score. Setting it to 0 makes brand irrelevant. |
+| `CANDIDATE_MULTIPLIER` | `AllocationAlgorithm.kt` | Higher value → more candidates considered per slot → higher chance of finding a match. Default 3 is a good balance for typical workloads (S ≤ 4). |
+| Scoring weights | `Equipment.score()` in `AllocationAlgorithm.kt` | Adjust `brandBonus` (currently 2.0, range 1–2) to control how strongly brand preference influences selection relative to condition score. Setting it to 0 makes brand irrelevant. |
 | Slot ordering | `processingOrder` in `AllocationAlgorithm.kt` | Currently most-constrained-first. Could be changed to most-demanded-first for different fairness properties. |
 
-### Trade-offs vs. Simpler Alternatives
+### Trade-offs vs. Other Alternatives
 
 | Approach | Pros | Cons |
 |----------|------|------|
-| **Greedy per-slot** | O(S·N) — trivially fast | No global optimality: slot 1 may steal the only good candidate slot 2 needs. |
+| **This greedy approach** ✓ | O(S·K) — linear, simple, sub-millisecond for real workloads | No global optimality guarantee; most-constrained-first ordering reduces but does not eliminate conflicts in overlapping candidate sets. |
+| **Backtracking search** | Global optimum within bounded search space | Exponential worst-case — O((G·K)^S) — and higher implementation complexity. |
 | **Hungarian algorithm** | Polynomial-time optimal for bipartite matching | Only handles 1-to-1 assignment; doesn't support soft preferences or mixed equipment types elegantly. |
 | **ILP solver** | Truly optimal for arbitrary constraints | Heavy dependency, cold-start latency, overkill for S ≤ 4 with simple scoring. |
-| **This backtracking approach** ✓ | Global optimum within bounded search space; no external deps; sub-millisecond for real workloads | Exponential worst-case — but controlled by K, S, and most-constrained-first pruning. |
 
 ---
 
