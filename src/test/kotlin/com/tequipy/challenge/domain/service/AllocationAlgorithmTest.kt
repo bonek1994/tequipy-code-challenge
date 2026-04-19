@@ -72,7 +72,7 @@ class AllocationAlgorithmTest {
     }
 
     @Test
-    fun `allocate should use globally feasible combination for competing slots`() {
+    fun `allocate should satisfy all competing slots by processing most constrained first`() {
         // given
         val strongMonitor = equipment(type = EquipmentType.MONITOR, brand = "Dell", model = "Strong", condition = 0.95)
         val mediumMonitor = equipment(type = EquipmentType.MONITOR, brand = "LG", model = "Medium", condition = 0.75)

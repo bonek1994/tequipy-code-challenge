@@ -113,9 +113,8 @@ src/main/kotlin/com/tequipy/challenge/
 
 ### Algorithmic Approach
 
-The algorithm finds a **globally optimal** assignment of available equipment to a list of
-policy requirements (slots). It is **not** a greedy per-slot matcher — it explores
-combinations across all slots to maximise total quality.
+The algorithm uses a **greedy per-slot** approach with **most-constrained-first** ordering
+to assign available equipment to a list of policy requirements (slots).
 
 **Step-by-step:**
 
@@ -124,20 +123,21 @@ combinations across all slots to maximise total quality.
 
 2. **Hard-constraint filtering** — for every slot, candidates are filtered by
    `type` (exact match) and `minimumConditionScore` (≥ threshold). Items that fail
-   either constraint are eliminated.
+   either constraint are eliminated. Only `AVAILABLE` equipment is considered.
 
-3. **Top-K pruning** — candidates for each slot are sorted by a scoring function and
+3. **Top-K pruning** — candidates for each slot are sorted by the scoring function and
    only the top `groupSize × CANDIDATE_MULTIPLIER` (default multiplier = **3**) are
    retained. `groupSize` is the number of slots sharing the same constraint key
    `(type, minimumConditionScore)`, so a request for 5 monitors keeps 5 × 3 = 15
-   candidates per slot. This bounds the search space while leaving enough room for
-   globally optimal combinations.
+   candidates per slot.
 
 4. **Most-constrained-first ordering** — slots are sorted by ascending candidate-list
-   size so the tightest constraints are satisfied first, pruning the search tree early.
+   size so the most tightly constrained slots are processed first, reducing the chance
+   of a later slot finding no available candidate.
 
-5. **Backtracking search** — a depth-first search enumerates all valid assignments
-   (no equipment used twice), tracking the combination with the highest total score.
+5. **Greedy selection** — for each slot (in most-constrained-first order), the
+   highest-scoring candidate not yet assigned to another slot is selected. If no
+   candidate is available for any slot, the allocation returns `null` (failed).
 
 6. **Scoring function** — each candidate is scored as:
    ```
@@ -159,13 +159,12 @@ combinations across all slots to maximise total quality.
 |----------|---------|
 | S | Total number of slots (Σ quantity across all requirements) |
 | K | `CANDIDATE_MULTIPLIER` (default 3) |
-| G | Number of slots in the largest constraint group |
+| G | Number of slots sharing the same constraint key (type, minimumConditionScore) |
 
-- **Worst-case:** O((G·K)^S) — the backtracking tree explores up to G·K branches at
-  each of S levels. In practice this is manageable because:
+- **Worst-case:** O(S · G·K) — for each slot, scan up to G·K candidates to find the
+  first unused one. In practice this is very fast because:
   - Typical S ≤ 4 (one allocation request equips one employee).
-  - K = 3, so per-slot branching is ≤ 12 for a group of 4 identical slots.
-  - Most-constrained-first ordering and the shared-ID exclusion prune the tree aggressively.
+  - Most-constrained-first ordering reduces the chance of conflicts late in processing.
 - **Observed performance** (from [benchmark report](#performance-tests--reports)):
   P50 = **0.076 ms**, P99 = **0.669 ms** per allocation over 5 000 invocations.
 
@@ -173,18 +172,18 @@ combinations across all slots to maximise total quality.
 
 | Knob | Location | Effect |
 |------|----------|--------|
-| `CANDIDATE_MULTIPLIER` | `AllocationAlgorithm.kt` | Higher value → larger search space → better quality, slower. Lower value → faster but may miss the optimal combination. Default 3 is a good balance for typical workloads (S ≤ 4). |
+| `CANDIDATE_MULTIPLIER` | `AllocationAlgorithm.kt` | Higher value → more candidates considered per slot → higher chance of finding a match. Default 3 is a good balance for typical workloads (S ≤ 4). |
 | Scoring weights | `Equipment.score()` in `AllocationAlgorithm.kt` | Adjust `brandBonus` (currently 10.0) to control how strongly brand preference dominates condition score. Setting it to 0 makes brand irrelevant. |
 | Slot ordering | `processingOrder` in `AllocationAlgorithm.kt` | Currently most-constrained-first. Could be changed to most-demanded-first for different fairness properties. |
 
-### Trade-offs vs. Simpler Alternatives
+### Trade-offs vs. Other Alternatives
 
 | Approach | Pros | Cons |
 |----------|------|------|
-| **Greedy per-slot** | O(S·N) — trivially fast | No global optimality: slot 1 may steal the only good candidate slot 2 needs. |
+| **This greedy approach** ✓ | O(S·K) — linear, simple, sub-millisecond for real workloads | No global optimality guarantee; most-constrained-first ordering reduces but does not eliminate conflicts in overlapping candidate sets. |
+| **Backtracking search** | Global optimum within bounded search space | Exponential worst-case — O((G·K)^S) — and higher implementation complexity. |
 | **Hungarian algorithm** | Polynomial-time optimal for bipartite matching | Only handles 1-to-1 assignment; doesn't support soft preferences or mixed equipment types elegantly. |
 | **ILP solver** | Truly optimal for arbitrary constraints | Heavy dependency, cold-start latency, overkill for S ≤ 4 with simple scoring. |
-| **This backtracking approach** ✓ | Global optimum within bounded search space; no external deps; sub-millisecond for real workloads | Exponential worst-case — but controlled by K, S, and most-constrained-first pruning. |
 
 ---
 
@@ -258,7 +257,9 @@ BatchAllocationCollector  (@Scheduled every 5 000 ms)
         ├─ ONE findByIdsForUpdate(candidateIds, globalMin)
         │    Locks only totalSlots × 2 rows (bounded oversample)
         │
-        ├─ Sort commands most-constrained-first
+        ├─ Sort commands most-constrained-total-first
+        │    Per requirement: quantity × (10 + preferredBrandBonus + minimumConditionScore)
+        │    Tiebreaker: total slot count (descending)
         │
         ├─ For each command:
         │    pool = lockedPool − usedIds
@@ -283,6 +284,36 @@ BatchAllocationCollector  (@Scheduled every 5 000 ms)
 
 Since allocation creation already returns **HTTP 202** (accepted, processing is async),
 the ≤ 5 s batching window is transparent to API clients.
+
+### How Batching Cooperates with the Algorithm
+
+`BatchAllocationService` and `AllocationAlgorithm` have a clean division of responsibilities:
+
+| Responsibility | Owner |
+|---------------|-------|
+| Accumulate requests into a window | `BatchAllocationCollector` |
+| Lock a single shared pool from the DB | `BatchAllocationService` |
+| Order requests to reduce contention for scarce items | `BatchAllocationService` |
+| Score and select equipment per request | `AllocationAlgorithm` |
+
+**Key interaction — shared pool, shrinking view:**
+
+1. The service locks one pool of candidates that covers the entire batch (`totalSlots × LOCK_OVERSAMPLE_FACTOR`).
+2. Requests are sorted by **most-constrained-total first** using:
+   ```
+   Σ req.quantity × (CONSTRAINT_BASE_WEIGHT + preferredBrandBonus + minimumConditionScore)
+   ```
+   - `CONSTRAINT_BASE_WEIGHT = 10.0` per slot ensures quantity is the primary scale — bigger requests (more items needed) naturally score higher.
+   - `preferredBrandBonus = 2.0` (added when `preferredBrand != null`) — reflects that brand-preferring requests compete for a narrower subset of the locked pool and need priority access.
+   - `minimumConditionScore ∈ [0, 1]` — adds the strictness of the quality threshold.
+   - **Tiebreaker**: `Σ quantity` (total slots) — used when total weights are exactly equal.
+3. For each request (in descending weight order), the algorithm sees only the pool items not yet claimed by earlier requests (`pool − usedIds`). This shrinking view means ordering matters: harder-to-satisfy requests must run first so they are not starved by simpler ones.
+4. The algorithm itself is **stateless** — it knows nothing about batching. Its greedy, most-constrained-first slot selection within a single request is orthogonal to the between-request ordering managed by the service.
+
+**What happens when only some requests in a batch can be fulfilled?**
+Each request is processed independently. If the algorithm returns `null` for a request (not enough matching equipment in the remaining pool), that request is marked `FAILED` and its result is published. Requests that succeeded are marked `ALLOCATED` and their equipment is reserved. All outcomes — both `ALLOCATED` and `FAILED` — are published together in a single batch message. This means a partial batch (some succeed, some fail) is handled transparently: each `AllocationProcessedMessageListener` call receives the result for its own allocation ID and updates the allocation state accordingly.
+
+**Why split this way?** Separating pool locking and request ordering into `BatchAllocationService` from per-request scoring in `AllocationAlgorithm` keeps each class focused and independently testable. If the ordering heuristic needs to change (e.g., fair-share or priority tiers), only `BatchAllocationService` needs updating — the algorithm is unaffected.
 
 ### Configuration
 

@@ -13,9 +13,7 @@ class AllocationAlgorithm {
          * Multiplier applied to the number of slots in a constraint group to
          * determine how many top-scoring candidates to consider per slot.
          *
-         * e.g. request for 5 monitors → 5 × 4 = top-20 candidates per slot.
-         * This keeps the search space bounded while giving the algorithm enough
-         * room to find a globally optimal combination.
+         * e.g. request for 5 monitors → 5 × 3 = top-15 candidates per slot.
          */
         const val CANDIDATE_MULTIPLIER = 3
 
@@ -51,30 +49,18 @@ class AllocationAlgorithm {
 
         val processingOrder = slots.indices.sortedBy { candidatesPerSlot[it].size }
 
-        var bestScore = Double.NEGATIVE_INFINITY
-        var bestSelection: List<Equipment>? = null
+        val usedIds = mutableSetOf<UUID>()
+        val chosen = mutableListOf<Equipment>()
 
-        fun search(pos: Int, usedIds: MutableSet<UUID>, chosen: MutableList<Equipment>, score: Double) {
-            if (pos == processingOrder.size) {
-                if (score > bestScore) {
-                    bestScore = score
-                    bestSelection = chosen.toList()
-                }
-                return
-            }
+        for (pos in processingOrder.indices) {
             val slotIdx = processingOrder[pos]
-            val candidates = candidatesPerSlot[slotIdx].filterNot { it.id in usedIds }
-            for (candidate in candidates) {
-                usedIds += candidate.id
-                chosen += candidate
-                search(pos + 1, usedIds, chosen, score + candidate.score(slots[slotIdx], recencyScores))
-                chosen.removeAt(chosen.lastIndex)
-                usedIds -= candidate.id
-            }
+            val candidate = candidatesPerSlot[slotIdx].firstOrNull { it.id !in usedIds }
+                ?: return null
+            usedIds += candidate.id
+            chosen += candidate
         }
 
-        search(0, linkedSetOf(), mutableListOf(), 0.0)
-        return bestSelection
+        return chosen
     }
 
     private fun computeRecencyScores(eligible: List<Equipment>): Map<UUID, Double> {
