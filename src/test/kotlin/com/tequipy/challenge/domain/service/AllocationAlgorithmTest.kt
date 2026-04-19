@@ -146,6 +146,23 @@ class AllocationAlgorithmTest {
     }
 
     @Test
+    fun `allocate should prefer newer equipment when condition scores are equal`() {
+        // given
+        val olderMonitor = equipment(type = EquipmentType.MONITOR, condition = 0.8, purchaseDate = LocalDate.of(2020, 1, 1))
+        val newerMonitor = equipment(type = EquipmentType.MONITOR, condition = 0.8, purchaseDate = LocalDate.of(2024, 1, 1))
+
+        // when
+        val result = algorithm.allocate(
+            policy = listOf(EquipmentPolicyRequirement(type = EquipmentType.MONITOR)),
+            availableEquipment = listOf(olderMonitor, newerMonitor)
+        )
+
+        // then
+        assertNotNull(result)
+        assertEquals(listOf(newerMonitor.id), result!!.map { it.id })
+    }
+
+    @Test
     fun `allocate should match preferred brand case insensitively`() {
         // given
         val apple = equipment(brand = "Apple", model = "MacBook Pro", type = EquipmentType.MAIN_COMPUTER, condition = 0.9)

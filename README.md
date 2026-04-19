@@ -141,12 +141,17 @@ to assign available equipment to a list of policy requirements (slots).
 
 6. **Scoring function** — each candidate is scored as:
    ```
-   score = brandBonus + conditionScore
+   score = brandBonus + conditionScore + recencyScore
    ```
-   - `brandBonus = 2.0` if the candidate's brand matches the slot's `preferredBrand`
-     (case-insensitive), otherwise `0.0`. The bonus makes brand a **soft preference**
-     without being a hard requirement.
+   - `brandBonus = 10.0` if the candidate's brand matches the slot's `preferredBrand`
+     (case-insensitive), otherwise `0.0`. The large bonus makes brand a **strong soft
+     preference** without being a hard requirement.
    - `conditionScore` is the equipment's raw condition value in `[0.0, 1.0]`.
+   - `recencyScore` is the equipment's normalized purchase date in `[0.0, 1.0]`, where
+     `0.0` is the oldest item in the eligible pool and `1.0` is the newest. When all
+     items share the same purchase date, every item receives `0.0`. Recency acts as a
+     **tiebreaker**: it can only swing a decision when two candidates are otherwise
+     equal (or very close) on brand preference and condition.
 
 ### Time Complexity
 
@@ -168,7 +173,7 @@ to assign available equipment to a list of policy requirements (slots).
 | Knob | Location | Effect |
 |------|----------|--------|
 | `CANDIDATE_MULTIPLIER` | `AllocationAlgorithm.kt` | Higher value → more candidates considered per slot → higher chance of finding a match. Default 3 is a good balance for typical workloads (S ≤ 4). |
-| Scoring weights | `Equipment.score()` in `AllocationAlgorithm.kt` | Adjust `brandBonus` (currently 2.0) to control how strongly brand preference influences selection relative to condition score. Setting it to 0 makes brand irrelevant. |
+| Scoring weights | `Equipment.score()` in `AllocationAlgorithm.kt` | Adjust `brandBonus` (currently 10.0) to control how strongly brand preference dominates condition score. Setting it to 0 makes brand irrelevant. |
 | Slot ordering | `processingOrder` in `AllocationAlgorithm.kt` | Currently most-constrained-first. Could be changed to most-demanded-first for different fairness properties. |
 
 ### Trade-offs vs. Other Alternatives
