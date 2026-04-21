@@ -70,13 +70,18 @@ class BatchAllocationService(
         if (commands.isEmpty()) return
         logger.info { "Processing batch of ${commands.size} allocation(s)" }
 
+        // Partition incoming commands into ones we should process now and ones
+        // that were already handled (idempotency). `tryStart` sets a processing
+        // marker in the DB so duplicate messages won't recompute the allocation.
         val (newCommands, cachedOutcomes) = partitionByIdempotency(commands)
 
         if (newCommands.isEmpty()) {
             allocationEventPublisher.publishAllocationProcessedBatch(cachedOutcomes)
             return
         }
-
+        // Lock a bounded subset of the available pool with SELECT ... FOR UPDATE
+        // so all allocation decisions in this batch see a consistent locked view
+        // and later updates (reserve -> reserved) cannot race with other batches.
         val lockedPool = lockCandidatePool(newCommands)
         val (resultsByAllocation, toReserve) = allocatePerCommand(newCommands, lockedPool)
 
@@ -100,11 +105,15 @@ class BatchAllocationService(
     ): Pair<List<ProcessAllocationCommand>, List<AllocationProcessedResult>> {
         val newCommands = mutableListOf<ProcessAllocationCommand>()
         val cached = mutableListOf<AllocationProcessedResult>()
-
+        // Iterate commands and attempt to 'claim' each allocation id for processing.
+        // `tryStart` returns true only when no prior processing marker exists —
+        // this implements at-least-once safe idempotency across duplicate messages.
         for (cmd in commands) {
             if (allocationProcessingRepository.tryStart(cmd.allocationId)) {
                 newCommands += cmd
             } else {
+                // If we failed to claim it, try to rehydrate a cached result to
+                // avoid recomputing the allocation and to republish the known outcome.
                 cachedResultFor(cmd.allocationId)?.let { cached += it }
             }
         }
@@ -115,14 +124,18 @@ class BatchAllocationService(
         val existing = allocationProcessingRepository.findById(allocationId) ?: return null
         return when (existing.state) {
             AllocationProcessingState.ALLOCATED -> {
+                // Previously completed successfully — republish the same allocated ids.
                 logger.info { "Allocation $allocationId already processed, republishing cached result" }
                 AllocationProcessedResult(allocationId, success = true, existing.allocatedEquipmentIds)
             }
             AllocationProcessingState.FAILED -> {
+                // Previously failed — republish failure so the upstream flow can act.
                 logger.info { "Allocation $allocationId already failed, republishing cached result" }
                 AllocationProcessedResult(allocationId, success = false)
             }
             AllocationProcessingState.PROCESSING -> {
+                // Another consumer is actively processing this allocation — skip
+                // returning a cached result to avoid competing updates.
                 logger.warn { "Allocation $allocationId is already in PROCESSING state, skipping" }
                 null
             }
@@ -151,6 +164,9 @@ class BatchAllocationService(
             .flatMap { it.policy.mapNotNull { req -> req.preferredBrand?.lowercase() } }
             .toSet()
 
+        // For each equipment type take a bounded top-N by (brandBonus + conditionScore).
+        // We oversample (`LOCK_OVERSAMPLE_FACTOR`) so the batch algorithm has some
+        // flexibility while keeping the locked row set small to limit contention.
         val candidateIds = available
             .groupBy { it.type }
             .flatMap { (type, items) ->
@@ -167,6 +183,10 @@ class BatchAllocationService(
             }
 
         if (candidateIds.isEmpty()) return emptyList()
+        // Finally we fetch the selected ids with FOR UPDATE locking to ensure no
+        // concurrent batch can claim the same rows; the repository method uses
+        // a SELECT ... FOR UPDATE SKIP LOCKED pattern to play nicely with other
+        // competing batch transactions.
         return equipmentRepository.findByIdsForUpdate(candidateIds, globalMin)
     }
 
@@ -181,6 +201,9 @@ class BatchAllocationService(
         commands: List<ProcessAllocationCommand>,
         pool: List<Equipment>
     ): AllocateResult {
+        // Sort commands by a computed weight that captures how constrained they are.
+        // Heavier (more constrained) requests are processed first so they get
+        // priority access to scarce candidates in the locked pool.
         val sorted = commands.sortedWith(
             compareByDescending<ProcessAllocationCommand> { cmd ->
                 // Weight per requirement = quantity × (base + brandBonus + minimumConditionScore).
@@ -201,6 +224,10 @@ class BatchAllocationService(
         val results = mutableMapOf<UUID, List<UUID>?>()
 
         for (cmd in sorted) {
+            // For each command run the pure allocation algorithm on the subset of
+            // pool rows not yet consumed by earlier (more-constrained) commands.
+            // We measure execution time for metrics but the algorithm itself is
+            // deterministic and stateless.
             val available = pool.filter { it.id !in usedIds }
             var selected: List<Equipment>?
             val nanos = measureNanoTime { selected = algorithm.allocate(cmd.policy, available) }
@@ -208,10 +235,15 @@ class BatchAllocationService(
 
             val chosen = selected
             if (chosen != null) {
+                // Mark chosen ids as used so later commands don't reuse same equipment
+                // within this batch. We also collect Equipment entities to update
+                // their state to RESERVED in bulk after the loop.
                 usedIds += chosen.map { it.id }
                 toReserve += chosen
                 results[cmd.allocationId] = chosen.map { it.id }
             } else {
+                // Allocation failed for this command given the current remaining pool.
+                // We record null to indicate FAILED and do not reserve anything.
                 results[cmd.allocationId] = null
             }
         }
@@ -226,6 +258,9 @@ class BatchAllocationService(
     ): List<AllocationProcessedResult> = commands.map { cmd ->
         val reserved = results[cmd.allocationId]
         val state = if (reserved != null) AllocationProcessingState.ALLOCATED else AllocationProcessingState.FAILED
+        // Persist the final processing state and the allocated ids (if any).
+        // `complete` transitions the processing marker to a terminal state so
+        // subsequent duplicate messages will read and republish the cached outcome.
         allocationProcessingRepository.complete(cmd.allocationId, state, reserved ?: emptyList())
         AllocationProcessedResult(cmd.allocationId, success = reserved != null, reserved ?: emptyList())
     }

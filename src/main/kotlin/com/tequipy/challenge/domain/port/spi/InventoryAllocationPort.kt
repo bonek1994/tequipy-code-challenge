@@ -1,10 +1,8 @@
 package com.tequipy.challenge.domain.port.spi
 
-import com.tequipy.challenge.domain.model.EquipmentPolicyRequirement
 import java.util.UUID
 
 interface InventoryAllocationPort {
-    fun reserveForAllocation(allocationId: UUID, policy: List<EquipmentPolicyRequirement>): List<UUID>?
 
     fun confirmReservedEquipment(equipmentIds: List<UUID>)
 

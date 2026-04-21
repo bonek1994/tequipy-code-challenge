@@ -17,27 +17,7 @@ class InventoryAllocationService(
     private val equipmentRepository: EquipmentRepository
 ) : InventoryAllocationPort {
 
-    private val algorithm = AllocationAlgorithm()
-    private val logger = KotlinLogging.logger {}
 
-    @Transactional
-    override fun reserveForAllocation(allocationId: UUID, policy: List<EquipmentPolicyRequirement>): List<UUID>? {
-        val globalMinScore = policy.mapNotNull { it.minimumConditionScore }.minOrNull() ?: 0.0
-        val requiredTypes = policy.map { it.type }.toSet()
-        val available = equipmentRepository.findAvailableWithMinConditionScore(requiredTypes, globalMinScore)
-
-        val chosen = measureAndRecord { algorithm.allocate(policy, available) } ?: return null
-        val selectedIds = chosen.map { it.id }
-
-        val locked = equipmentRepository.findByIdsForUpdate(selectedIds, globalMinScore)
-        if (locked.size < selectedIds.size) {
-            logger.warn { "Lock contention for allocation $allocationId: ${locked.size}/${selectedIds.size} locks obtained" }
-            throw AllocationLockContentionException(allocationId)
-        }
-
-        equipmentRepository.updateAll(chosen.map { it.copy(state = EquipmentState.RESERVED) })
-        return selectedIds
-    }
 
     @Transactional
     override fun confirmReservedEquipment(equipmentIds: List<UUID>) {
@@ -55,10 +35,4 @@ class InventoryAllocationService(
         })
     }
 
-    private inline fun <T> measureAndRecord(block: () -> T): T {
-        var result: T
-        val nanos = measureNanoTime { result = block() }
-        AllocationAlgorithmMetrics.record(nanos)
-        return result
-    }
 }
