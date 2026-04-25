@@ -1,6 +1,7 @@
 package com.tequipy.challenge.config
 
 import com.tequipy.challenge.domain.AllocationLockContentionException
+import org.springframework.amqp.core.AcknowledgeMode
 import org.springframework.amqp.core.Binding
 import org.springframework.amqp.core.BindingBuilder
 import org.springframework.amqp.core.DirectExchange
@@ -80,15 +81,20 @@ class RabbitMQConfig {
     }
 
     @Bean
+    fun manualAcknowledgementInterceptor(): ManualAcknowledgementInterceptor = ManualAcknowledgementInterceptor()
+
+    @Bean
     fun rabbitListenerContainerFactory(
         connectionFactory: ConnectionFactory,
+        manualAcknowledgementInterceptor: ManualAcknowledgementInterceptor,
         allocationRetryInterceptor: RetryOperationsInterceptor,
         jsonMessageConverter: Jackson2JsonMessageConverter,
         @Value("\${$ALLOCATION_PREFETCH_COUNT_PROPERTY:10}") prefetchCount: Int
     ): SimpleRabbitListenerContainerFactory {
         val factory = SimpleRabbitListenerContainerFactory()
         factory.setConnectionFactory(connectionFactory)
-        factory.setAdviceChain(allocationRetryInterceptor)
+        factory.setAcknowledgeMode(AcknowledgeMode.MANUAL)
+        factory.setAdviceChain(manualAcknowledgementInterceptor, allocationRetryInterceptor)
         factory.setMessageConverter(jsonMessageConverter)
         factory.setPrefetchCount(prefetchCount)
         return factory
